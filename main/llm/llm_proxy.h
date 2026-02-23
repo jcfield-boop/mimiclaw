@@ -4,6 +4,7 @@
 #include "cJSON.h"
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "mimi_config.h"
 
@@ -27,6 +28,29 @@ esp_err_t llm_set_provider(const char *provider);
  */
 esp_err_t llm_set_model(const char *model);
 
+/**
+ * Return current provider string (e.g. "openrouter", "anthropic").
+ */
+const char *llm_get_provider(void);
+
+/**
+ * Return current model string.
+ */
+const char *llm_get_model(void);
+
+/**
+ * Return current API key (raw, for masking by caller).
+ */
+const char *llm_get_api_key(void);
+
+/**
+ * Return cumulative session token stats and estimated cost.
+ * @param in             Total input tokens this session (may be NULL)
+ * @param out            Total output tokens this session (may be NULL)
+ * @param cost_millicents Cost in 1/1000 cents (may be NULL; non-zero only for OpenRouter)
+ */
+void llm_get_session_stats(uint32_t *in, uint32_t *out, uint32_t *cost_millicents);
+
 /* ── Tool Use Support ──────────────────────────────────────────── */
 
 typedef struct {
@@ -42,6 +66,8 @@ typedef struct {
     llm_tool_call_t calls[MIMI_MAX_TOOL_CALLS];
     int call_count;
     bool tool_use;                               /* stop_reason == "tool_use" */
+    uint32_t input_tokens;                       /* tokens consumed from context */
+    uint32_t output_tokens;                      /* tokens generated */
 } llm_response_t;
 
 void llm_response_free(llm_response_t *resp);

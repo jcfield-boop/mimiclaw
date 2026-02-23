@@ -68,6 +68,8 @@ esp_err_t tool_web_search_init(void)
     return ESP_OK;
 }
 
+const char *tool_web_search_get_key(void) { return s_search_key; }
+
 /* ── URL-encode a query string ────────────────────────────────── */
 
 static size_t url_encode(const char *src, char *dst, size_t dst_size)

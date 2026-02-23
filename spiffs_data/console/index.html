@@ -11,6 +11,7 @@ header{background:#2d2d2d;padding:8px 14px;display:flex;align-items:center;gap:1
 header h1{font-size:0.95rem;color:#7ec8e3}
 #ip{color:#888;font-size:0.8rem}
 #mem{color:#7ee38e;font-size:0.75rem;margin-left:6px;white-space:nowrap}
+#tok{color:#c8e37e;font-size:0.75rem;margin-left:6px;white-space:nowrap}
 #ws-dot{width:8px;height:8px;border-radius:50%;background:#555;flex-shrink:0;transition:background .3s}
 #ws-dot.on{background:#7ee38e}
 #ws-dot.err{background:#e37e7e}
@@ -35,6 +36,14 @@ nav button:hover{color:#ddd;background:#2d2d2d}
 #status{color:#7ee38e;font-size:0.8rem}
 textarea{flex:1;background:#222;color:#ddd;border:1px solid #444;padding:10px;font-family:monospace;font-size:0.83rem;resize:none;line-height:1.6;outline:none;min-height:0}
 textarea:focus{border-color:#555}
+/* Settings panel */
+#settings-panel{flex:1;display:none;flex-direction:column;padding:16px;gap:12px;min-height:0;overflow-y:auto}
+#settings-panel label{font-size:0.82rem;color:#aaa;display:block;margin-bottom:3px}
+#settings-panel input[type=text],#settings-panel input[type=password]{width:100%;background:#222;color:#ddd;border:1px solid #444;padding:6px 10px;font-family:monospace;font-size:0.83rem;border-radius:3px;outline:none;box-sizing:border-box}
+#settings-panel input:focus{border-color:#555}
+.settings-row{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
+.settings-row .field{flex:1;min-width:180px}
+#cfg-status{color:#7ee38e;font-size:0.8rem}
 /* Skills panel */
 #skill-panel{flex:1;display:none;flex-direction:row;gap:8px;padding:10px;min-height:0}
 #skill-list-col{width:148px;flex-shrink:0;display:flex;flex-direction:column;gap:4px;overflow-y:auto}
@@ -57,6 +66,7 @@ textarea:focus{border-color:#555}
   <h1>&#x1F916; C6PO</h1>
   <span id="ip"></span>
   <span id="mem"></span>
+  <span id="tok"></span>
   <button id="reboot-btn" onclick="doReboot()">&#x21BA; Reboot</button>
 </header>
 <nav>
@@ -65,6 +75,7 @@ textarea:focus{border-color:#555}
   <button onclick="showTab('user',this)">USER.md</button>
   <button onclick="showTab('memory',this)">MEMORY.md</button>
   <button onclick="showTab('skills',this)">Skills</button>
+  <button onclick="showTab('settings',this)">Settings</button>
 </nav>
 <div id="content">
   <div id="log-panel"></div>
@@ -88,6 +99,32 @@ textarea:focus{border-color:#555}
       </div>
       <textarea id="skill-editor" spellcheck="false"></textarea>
     </div>
+  </div>
+  <div id="settings-panel">
+    <div class="settings-row">
+      <div class="field">
+        <label>LLM Provider</label>
+        <input id="cfg-provider" type="text" placeholder="openrouter" maxlength="32">
+      </div>
+      <div class="field">
+        <label>LLM Model</label>
+        <input id="cfg-model" type="text" placeholder="openrouter/auto" maxlength="64">
+      </div>
+    </div>
+    <div class="field">
+      <label>LLM API Key</label>
+      <input id="cfg-apikey" type="password" placeholder="sk-or-v1-..." maxlength="320" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Brave Search API Key</label>
+      <input id="cfg-searchkey" type="password" placeholder="BSA..." maxlength="128" autocomplete="off">
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button onclick="loadConfig()">&#x21BA; Load</button>
+      <button onclick="saveConfig()">&#x1F4BE; Save</button>
+      <span id="cfg-status"></span>
+    </div>
+    <p style="color:#555;font-size:0.75rem">Keys are stored in NVS and survive firmware updates. Masked values (****xxxx) are shown for existing keys — leave unchanged to keep the current key.</p>
   </div>
 </div>
 <script>
@@ -141,9 +178,11 @@ function showTab(tab,btn){
   btn.classList.add('active');
   curTab=tab;
   document.getElementById('log-panel').style.display=tab==='log'?'':'none';
-  document.getElementById('file-panel').style.display=(tab!=='log'&&tab!=='skills')?'flex':'none';
+  document.getElementById('file-panel').style.display=(tab!=='log'&&tab!=='skills'&&tab!=='settings')?'flex':'none';
   document.getElementById('skill-panel').style.display=tab==='skills'?'flex':'none';
+  document.getElementById('settings-panel').style.display=tab==='settings'?'flex':'none';
   if(tab==='skills'){loadSkillList();return}
+  if(tab==='settings'){loadConfig();return}
   if(tab!=='log'){
     curFile=tab;
     setStatus('Loading...');
@@ -270,8 +309,52 @@ function fetchSysinfo(){
     var st=Math.round(d.spiffs_total/1024);
     document.getElementById('mem').textContent=
       'RAM:'+hf+'K(min:'+hm+'K)  FS:'+su+'/'+st+'K';
+    var ti=d.tokens_in||0,to=d.tokens_out||0,cm=d.cost_millicents||0;
+    var tokStr='Tok:'+ti+'\u2191'+to+'\u2193';
+    if(cm>0){
+      var dollars=(cm/100000).toFixed(4);
+      tokStr+='  $'+dollars;
+    }
+    document.getElementById('tok').textContent=tokStr;
   })
   .catch(function(){});
+}
+
+/* ── Settings ── */
+function loadConfig(){
+  document.getElementById('cfg-status').textContent='Loading...';
+  fetch('/api/config')
+  .then(function(r){return r.json()})
+  .then(function(d){
+    document.getElementById('cfg-provider').value=d.provider||'';
+    document.getElementById('cfg-model').value=d.model||'';
+    document.getElementById('cfg-apikey').value=d.api_key||'';
+    document.getElementById('cfg-searchkey').value=d.search_key||'';
+    document.getElementById('cfg-status').textContent='';
+  })
+  .catch(function(){document.getElementById('cfg-status').textContent='Load failed'});
+}
+
+function saveConfig(){
+  var body={
+    provider:document.getElementById('cfg-provider').value.trim(),
+    model:document.getElementById('cfg-model').value.trim(),
+    api_key:document.getElementById('cfg-apikey').value.trim(),
+    search_key:document.getElementById('cfg-searchkey').value.trim()
+  };
+  document.getElementById('cfg-status').textContent='Saving...';
+  fetch('/api/config',{
+    method:'POST',
+    body:JSON.stringify(body),
+    headers:{'Content-Type':'application/json'}
+  })
+  .then(function(r){return r.json()})
+  .then(function(j){
+    document.getElementById('cfg-status').textContent=j.ok?'Saved \u2713':'Save failed';
+    setTimeout(function(){document.getElementById('cfg-status').textContent=''},3000);
+    if(j.ok) loadConfig();
+  })
+  .catch(function(){document.getElementById('cfg-status').textContent='Save failed'});
 }
 
 /* ── Reboot ── */

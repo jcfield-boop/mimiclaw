@@ -22,6 +22,10 @@ static char s_api_key[LLM_API_KEY_MAX_LEN] = {0};
 static char s_model[LLM_MODEL_MAX_LEN] = MIMI_LLM_DEFAULT_MODEL;
 static char s_provider[16] = MIMI_LLM_PROVIDER_DEFAULT;
 
+static uint32_t s_total_input_tokens    = 0;
+static uint32_t s_total_output_tokens   = 0;
+static uint32_t s_total_cost_millicents = 0;
+
 static void llm_log_payload(const char *label, const char *payload)
 {
     if (!payload) {
@@ -672,6 +676,23 @@ esp_err_t llm_chat_tools(const char *system_prompt,
                 }
             }
         }
+
+        /* Parse usage (OpenAI/OpenRouter format) */
+        cJSON *usage = cJSON_GetObjectItem(root, "usage");
+        if (usage) {
+            cJSON *pt = cJSON_GetObjectItem(usage, "prompt_tokens");
+            cJSON *ct = cJSON_GetObjectItem(usage, "completion_tokens");
+            if (pt && cJSON_IsNumber(pt)) resp->input_tokens  = (uint32_t)pt->valueint;
+            if (ct && cJSON_IsNumber(ct)) resp->output_tokens = (uint32_t)ct->valueint;
+            if (provider_is_openrouter()) {
+                cJSON *cost = cJSON_GetObjectItem(usage, "cost");
+                if (cost && cJSON_IsNumber(cost)) {
+                    s_total_cost_millicents += (uint32_t)(cost->valuedouble * 100000.0 + 0.5);
+                }
+            }
+            s_total_input_tokens  += resp->input_tokens;
+            s_total_output_tokens += resp->output_tokens;
+        }
     } else {
         /* stop_reason */
         cJSON *stop_reason = cJSON_GetObjectItem(root, "stop_reason");
@@ -742,6 +763,17 @@ esp_err_t llm_chat_tools(const char *system_prompt,
                 resp->call_count++;
             }
         }
+
+        /* Parse usage (Anthropic format) */
+        cJSON *usage = cJSON_GetObjectItem(root, "usage");
+        if (usage) {
+            cJSON *it = cJSON_GetObjectItem(usage, "input_tokens");
+            cJSON *ot = cJSON_GetObjectItem(usage, "output_tokens");
+            if (it && cJSON_IsNumber(it)) resp->input_tokens  = (uint32_t)it->valueint;
+            if (ot && cJSON_IsNumber(ot)) resp->output_tokens = (uint32_t)ot->valueint;
+            s_total_input_tokens  += resp->input_tokens;
+            s_total_output_tokens += resp->output_tokens;
+        }
     }
 
     cJSON_Delete(root);
@@ -752,6 +784,19 @@ esp_err_t llm_chat_tools(const char *system_prompt,
 
     return ESP_OK;
 }
+
+/* ── Session stats ────────────────────────────────────────────── */
+
+void llm_get_session_stats(uint32_t *in, uint32_t *out, uint32_t *cost_millicents)
+{
+    if (in)             *in             = s_total_input_tokens;
+    if (out)            *out            = s_total_output_tokens;
+    if (cost_millicents) *cost_millicents = s_total_cost_millicents;
+}
+
+const char *llm_get_provider(void) { return s_provider; }
+const char *llm_get_model(void)    { return s_model; }
+const char *llm_get_api_key(void)  { return s_api_key; }
 
 /* ── NVS helpers ──────────────────────────────────────────────── */
 

@@ -1,6 +1,8 @@
 #include "ws_server.h"
 #include "mimi_config.h"
 #include "bus/message_bus.h"
+#include "llm/llm_proxy.h"
+#include "tools/tool_web_search.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -433,7 +435,7 @@ static esp_err_t skill_delete_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-/* GET /api/sysinfo -> heap and SPIFFS stats */
+/* GET /api/sysinfo -> heap, SPIFFS stats, and token usage */
 static esp_err_t sysinfo_handler(httpd_req_t *req)
 {
     size_t heap_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
@@ -441,14 +443,116 @@ static esp_err_t sysinfo_handler(httpd_req_t *req)
     size_t spiffs_total = 0, spiffs_used = 0;
     esp_spiffs_info(NULL, &spiffs_total, &spiffs_used);
 
-    char buf[128];
+    uint32_t tok_in = 0, tok_out = 0, cost_mc = 0;
+    llm_get_session_stats(&tok_in, &tok_out, &cost_mc);
+
+    char buf[256];
     snprintf(buf, sizeof(buf),
-             "{\"heap_free\":%u,\"heap_min\":%u,\"spiffs_total\":%u,\"spiffs_used\":%u}",
+             "{\"heap_free\":%u,\"heap_min\":%u,\"spiffs_total\":%u,\"spiffs_used\":%u"
+             ",\"tokens_in\":%u,\"tokens_out\":%u,\"cost_millicents\":%u}",
              (unsigned)heap_free, (unsigned)heap_min,
-             (unsigned)spiffs_total, (unsigned)spiffs_used);
+             (unsigned)spiffs_total, (unsigned)spiffs_used,
+             (unsigned)tok_in, (unsigned)tok_out, (unsigned)cost_mc);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_sendstr(req, buf);
+    return ESP_OK;
+}
+
+/* ── GET /api/config -> current config (masked) ──────────────────────────── */
+
+static void mask_key(const char *key, char *out, size_t out_size)
+{
+    size_t len = strlen(key);
+    if (len == 0) {
+        out[0] = '\0';
+    } else if (len <= 4) {
+        snprintf(out, out_size, "****");
+    } else {
+        snprintf(out, out_size, "****%s", key + len - 4);
+    }
+}
+
+static esp_err_t config_get_handler(httpd_req_t *req)
+{
+    char masked_api[16];
+    char masked_search[16];
+    const char *ak = llm_get_api_key();
+    mask_key(ak ? ak : "", masked_api, sizeof(masked_api));
+
+    const char *sk = tool_web_search_get_key();
+    mask_key(sk ? sk : "", masked_search, sizeof(masked_search));
+
+    cJSON *j = cJSON_CreateObject();
+    cJSON_AddStringToObject(j, "provider",   llm_get_provider());
+    cJSON_AddStringToObject(j, "model",      llm_get_model());
+    cJSON_AddStringToObject(j, "api_key",    masked_api);
+    cJSON_AddStringToObject(j, "search_key", masked_search);
+
+    char *json_str = cJSON_PrintUnformatted(j);
+    cJSON_Delete(j);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_str ? json_str : "{}");
+    free(json_str);
+    return ESP_OK;
+}
+
+/* ── POST /api/config -> update config fields ────────────────────────────── */
+
+static esp_err_t config_post_handler(httpd_req_t *req)
+{
+    size_t max_body = 2048;
+    size_t body_len = (req->content_len > 0 && (size_t)req->content_len < max_body)
+                      ? (size_t)req->content_len : max_body;
+
+    char *body = malloc(body_len + 1);
+    if (!body) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+        return ESP_OK;
+    }
+
+    int received = httpd_req_recv(req, body, body_len);
+    if (received <= 0) {
+        free(body);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body received");
+        return ESP_OK;
+    }
+    body[received] = '\0';
+
+    cJSON *root = cJSON_Parse(body);
+    free(body);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_OK;
+    }
+
+    cJSON *provider   = cJSON_GetObjectItem(root, "provider");
+    cJSON *model      = cJSON_GetObjectItem(root, "model");
+    cJSON *api_key    = cJSON_GetObjectItem(root, "api_key");
+    cJSON *search_key = cJSON_GetObjectItem(root, "search_key");
+
+    if (provider && cJSON_IsString(provider) && provider->valuestring[0]) {
+        llm_set_provider(provider->valuestring);
+    }
+    if (model && cJSON_IsString(model) && model->valuestring[0]) {
+        llm_set_model(model->valuestring);
+    }
+    if (api_key && cJSON_IsString(api_key) && api_key->valuestring[0]
+        && strncmp(api_key->valuestring, "****", 4) != 0) {
+        llm_set_api_key(api_key->valuestring);
+    }
+    if (search_key && cJSON_IsString(search_key) && search_key->valuestring[0]
+        && strncmp(search_key->valuestring, "****", 4) != 0) {
+        tool_web_search_set_key(search_key->valuestring);
+    }
+
+    cJSON_Delete(root);
+
+    ESP_LOGI(TAG, "Config updated via web");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, "{\"ok\":true}");
     return ESP_OK;
 }
 
@@ -463,7 +567,7 @@ esp_err_t ws_server_start(void)
     config.ctrl_port         = MIMI_WS_PORT + 1;
     config.max_open_sockets  = 4; /* lwIP max_sockets(8) minus 3 internal = 5 max; use 4 to be safe */
     config.stack_size        = 8192;                     /* SPIFFS I/O needs headroom */
-    config.max_uri_handlers  = 14;
+    config.max_uri_handlers  = 16;
 
     esp_err_t ret = httpd_start(&s_server, &config);
     if (ret != ESP_OK) {
@@ -551,6 +655,22 @@ esp_err_t ws_server_start(void)
         .handler = sysinfo_handler,
     };
     httpd_register_uri_handler(s_server, &sysinfo_uri);
+
+    /* Config read */
+    httpd_uri_t config_get_uri = {
+        .uri    = "/api/config",
+        .method = HTTP_GET,
+        .handler = config_get_handler,
+    };
+    httpd_register_uri_handler(s_server, &config_get_uri);
+
+    /* Config write */
+    httpd_uri_t config_post_uri = {
+        .uri    = "/api/config",
+        .method = HTTP_POST,
+        .handler = config_post_handler,
+    };
+    httpd_register_uri_handler(s_server, &config_post_uri);
 
     ESP_LOGI(TAG, "Server started on port %d (WS: /ws, Console: /)", MIMI_WS_PORT);
     return ESP_OK;

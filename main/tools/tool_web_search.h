@@ -22,3 +22,8 @@ esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t o
  * Save Brave Search API key to NVS.
  */
 esp_err_t tool_web_search_set_key(const char *api_key);
+
+/**
+ * Return the currently configured Brave Search API key (may be empty).
+ */
+const char *tool_web_search_get_key(void);

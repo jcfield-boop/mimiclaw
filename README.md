@@ -34,7 +34,7 @@ Tested on: ESP32-C6FH4 (revision v0.2).
 - **Telegram bot** — send messages, get AI replies, full conversation history per chat
 - **Web console** on port 80 — live activity log, file editors, skills manager, memory monitor
 - **LLM providers** — Anthropic (Claude), OpenRouter (300+ models), or any OpenAI-compatible endpoint
-- **Tool use** — web search (Serper API), read/write/edit SPIFFS files, cron scheduling
+- **Tool use** — web search (Brave Search API), read/write/edit SPIFFS files, cron scheduling
 - **Skills system** — teach the bot new capabilities via Markdown files; create/edit/delete from the browser
 - **Session memory** — per-chat conversation history stored in SPIFFS
 - **Long-term memory** — persistent MEMORY.md updated by the agent over time
@@ -54,8 +54,9 @@ Browse to `http://<device-ip>` after it connects to WiFi (the IP is printed in t
 | **USER.md** | Notes about you — the bot reads this on every turn |
 | **MEMORY.md** | Long-term memory written by the bot itself |
 | **Skills** | List, create, edit, and delete skill files |
+| **Settings** | Set LLM provider/model/API key and Brave Search key from the browser |
 
-The header shows live free heap and SPIFFS usage, refreshed every 15 seconds.
+The header shows live free heap, SPIFFS usage, and session token counts (with cost estimate if using OpenRouter), refreshed every 15 seconds.
 
 ---
 
@@ -85,11 +86,13 @@ Connect at 115200 baud (e.g. `screen /dev/ttyUSB0 115200`) and run:
 ```
 set_wifi <your-ssid> <your-password>
 set_tg_token <your-telegram-bot-token>
-set_model_provider anthropic
-set_api_key <your-api-key>
-set_model claude-opus-4-5
+set_model_provider openrouter
+set_api_key <your-openrouter-key>
+set_model openrouter/auto
 restart
 ```
+
+Get an OpenRouter key at [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) — it gives access to 300+ models. Anthropic and OpenAI keys also work; see the [OpenRouter](#openrouter) section below.
 
 ### 4. Verify boot
 
@@ -101,9 +104,17 @@ I (1234) wifi: connected, IP: 192.168.x.x
 
 Open `http://<device-ip>` in a browser to access the web console.
 
-### 5. Send your first message
+### 5. Personalise and enable web search
 
-Open Telegram, find your bot, and send it a message. You should get an AI reply within a few seconds.
+In the web console **Settings** tab you can:
+- Set or change your LLM provider, model, and API key
+- Set your **Brave Search** API key (get one free at [brave.com/search/api](https://brave.com/search/api/)) to enable the `web_search` tool
+
+Then open the **SOUL.md** tab to edit the bot's personality, and **USER.md** to tell the bot about yourself.
+
+### 6. Send your first message
+
+Open Telegram, find your bot, and send it a message. You should get an AI reply within a few seconds. Token counts and cost appear in the web console header.
 
 ---
 
@@ -155,7 +166,7 @@ set_model_provider anthropic          # or: openrouter, openai
 set_api_key <your-api-key>
 set_model claude-opus-4-5
 
-# Optional: web search (Serper API key — see serper.dev)
+# Optional: web search (Brave Search API key — see brave.com/search/api)
 set_search_key <key>
 
 # Show current config
@@ -166,7 +177,7 @@ config_show
 
 ## OpenRouter
 
-C6PO supports [OpenRouter](https://openrouter.ai) as a drop-in provider, giving access to 300+ models through a single API key.
+C6PO defaults to [OpenRouter](https://openrouter.ai) — a single API key gives access to 300+ models including Claude, Gemini, GPT-4, and more.
 
 ```
 set_model_provider openrouter
@@ -178,17 +189,19 @@ set_model google/gemini-2.0-flash
 
 Get an API key at: https://openrouter.ai/settings/keys
 
+You can also set this from the browser: open the web console **Settings** tab.
+
 ---
 
 ## Web Search
 
-Web search uses the [Serper](https://serper.dev) API (Google Search results, free tier available).
+Web search uses the [Brave Search API](https://brave.com/search/api/) (free tier: 2,000 queries/month).
 
 ```
-set_search_key <your-serper-key>
+set_search_key <your-brave-search-key>
 ```
 
-The key is stored in NVS and survives firmware updates. If the key is not set, the `web_search` tool will be unavailable and the agent will say so.
+Or set it from the browser in the web console **Settings** tab. The key is stored in NVS and survives firmware updates. If the key is not set, the `web_search` tool will be unavailable and the agent will say so.
 
 ---
 
@@ -217,7 +230,7 @@ Connect at 115200 baud and type `help` for the full command list. Key commands:
 | `set_model_provider <p>` | Set LLM provider (`anthropic`, `openrouter`, `openai`) |
 | `set_api_key <key>` | Set LLM API key |
 | `set_model <model>` | Set model name |
-| `set_search_key <key>` | Set Serper web search API key |
+| `set_search_key <key>` | Set Brave Search API key |
 | `config_show` | Show all current settings |
 | `wifi_status` | Show WiFi connection info |
 | `wifi_scan` | Scan for nearby networks |
