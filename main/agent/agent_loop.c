@@ -5,6 +5,7 @@
 #include "llm/llm_proxy.h"
 #include "memory/session_mgr.h"
 #include "tools/tool_registry.h"
+#include "gateway/ws_server.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -152,6 +153,7 @@ static cJSON *build_tool_results(const llm_response_t *resp, const mimi_msg_t *m
 
         /* Execute tool */
         tool_output[0] = '\0';
+        ws_server_broadcast_monitor("tool", call->name);
         tool_registry_execute(call->name, tool_input, tool_output, tool_output_size);
         free(patched_input);
 
@@ -172,13 +174,13 @@ static void agent_loop_task(void *arg)
 {
     ESP_LOGI(TAG, "Agent loop started on core %d", xPortGetCoreID());
 
-    /* Allocate large buffers from PSRAM */
-    char *system_prompt = heap_caps_calloc(1, MIMI_CONTEXT_BUF_SIZE, MALLOC_CAP_SPIRAM);
-    char *history_json = heap_caps_calloc(1, MIMI_LLM_STREAM_BUF_SIZE, MALLOC_CAP_SPIRAM);
-    char *tool_output = heap_caps_calloc(1, TOOL_OUTPUT_SIZE, MALLOC_CAP_SPIRAM);
+    /* Allocate large buffers from internal SRAM (ESP32-C6 has no PSRAM) */
+    char *system_prompt = calloc(1, MIMI_CONTEXT_BUF_SIZE);
+    char *history_json = calloc(1, MIMI_LLM_STREAM_BUF_SIZE);
+    char *tool_output = calloc(1, TOOL_OUTPUT_SIZE);
 
     if (!system_prompt || !history_json || !tool_output) {
-        ESP_LOGE(TAG, "Failed to allocate PSRAM buffers");
+        ESP_LOGE(TAG, "Failed to allocate buffers");
         vTaskDelete(NULL);
         return;
     }
@@ -191,6 +193,11 @@ static void agent_loop_task(void *arg)
         if (err != ESP_OK) continue;
 
         ESP_LOGI(TAG, "Processing message from %s:%s", msg.channel, msg.chat_id);
+        {
+            char mon[64];
+            snprintf(mon, sizeof(mon), "from %s:%s", msg.channel, msg.chat_id);
+            ws_server_broadcast_monitor("task", mon);
+        }
 
         /* 1. Build system prompt */
         context_build_system_prompt(system_prompt, MIMI_CONTEXT_BUF_SIZE);
@@ -234,6 +241,7 @@ static void agent_loop_task(void *arg)
             }
 #endif
 
+            ws_server_broadcast_monitor("llm", "calling LLM...");
             llm_response_t resp;
             err = llm_chat_tools(system_prompt, messages, tools_json, &resp);
 
@@ -293,6 +301,7 @@ static void agent_loop_task(void *arg)
             out.content = final_text;  /* transfer ownership */
             ESP_LOGI(TAG, "Queue final response to %s:%s (%d bytes)",
                      out.channel, out.chat_id, (int)strlen(final_text));
+            ws_server_broadcast_monitor("done", out.chat_id);
             if (message_bus_push_outbound(&out) != ESP_OK) {
                 ESP_LOGW(TAG, "Outbound queue full, drop final response");
                 free(final_text);
@@ -341,10 +350,10 @@ esp_err_t agent_loop_start(void)
 
     for (size_t i = 0; i < (sizeof(stack_candidates) / sizeof(stack_candidates[0])); i++) {
         uint32_t stack_size = stack_candidates[i];
-        BaseType_t ret = xTaskCreatePinnedToCore(
+        BaseType_t ret = xTaskCreate(
             agent_loop_task, "agent_loop",
             stack_size, NULL,
-            MIMI_AGENT_PRIO, NULL, MIMI_AGENT_CORE);
+            MIMI_AGENT_PRIO, NULL);
 
         if (ret == pdPASS) {
             ESP_LOGI(TAG, "agent_loop task created with stack=%u bytes", (unsigned)stack_size);

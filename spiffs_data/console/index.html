@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MimiClaw Console</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:monospace;background:#1a1a1a;color:#e0e0e0;height:100vh;display:flex;flex-direction:column;font-size:14px}
+header{background:#2d2d2d;padding:8px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #444;flex-shrink:0;flex-wrap:wrap}
+header h1{font-size:0.95rem;color:#7ec8e3}
+#ip{color:#888;font-size:0.8rem}
+#mem{color:#7ee38e;font-size:0.75rem;margin-left:6px;white-space:nowrap}
+#ws-dot{width:8px;height:8px;border-radius:50%;background:#555;flex-shrink:0;transition:background .3s}
+#ws-dot.on{background:#7ee38e}
+#ws-dot.err{background:#e37e7e}
+button{background:#3a3a3a;color:#ddd;border:1px solid #555;padding:5px 11px;cursor:pointer;border-radius:3px;font-family:monospace;font-size:0.82rem}
+button:hover{background:#4a4a4a}
+#reboot-btn{background:#5a1f1f;border-color:#8b3333;margin-left:auto;color:#ffaaaa}
+#reboot-btn:hover{background:#6b2020}
+nav{background:#222;display:flex;border-bottom:1px solid #444;flex-shrink:0}
+nav button{border:none;border-bottom:2px solid transparent;border-radius:0;padding:8px 14px;color:#888;background:transparent}
+nav button.active{color:#7ec8e3;border-bottom-color:#7ec8e3}
+nav button:hover{color:#ddd;background:#2d2d2d}
+#content{flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+/* Log panel */
+#log-panel{flex:1;overflow-y:auto;padding:8px 10px;min-height:0}
+.entry{padding:1px 0;line-height:1.5}
+.ts{color:#555;margin-right:6px;user-select:none}
+.llm{color:#7ec8e3}.tool{color:#c8e37e}.done{color:#7ee38e}
+.task{color:#b07ee3}.msg{color:#e3b97e}.err{color:#e37e7e}.ws{color:#777}
+/* File panel (soul/user/memory) */
+#file-panel{flex:1;display:none;flex-direction:column;padding:10px;gap:8px;min-height:0}
+#file-panel .toolbar{display:flex;gap:8px;align-items:center;flex-shrink:0}
+#status{color:#7ee38e;font-size:0.8rem}
+textarea{flex:1;background:#222;color:#ddd;border:1px solid #444;padding:10px;font-family:monospace;font-size:0.83rem;resize:none;line-height:1.6;outline:none;min-height:0}
+textarea:focus{border-color:#555}
+/* Skills panel */
+#skill-panel{flex:1;display:none;flex-direction:row;gap:8px;padding:10px;min-height:0}
+#skill-list-col{width:148px;flex-shrink:0;display:flex;flex-direction:column;gap:4px;overflow-y:auto}
+#skill-edit-col{flex:1;display:flex;flex-direction:column;gap:6px;min-height:0}
+#skill-edit-col .toolbar{display:flex;gap:6px;align-items:center;flex-shrink:0;flex-wrap:wrap}
+.skill-item{background:#2d2d2d;border:1px solid #444;padding:4px 8px;cursor:pointer;font-size:0.8rem;color:#aaa;text-align:left;border-radius:3px;width:100%}
+.skill-item:hover{background:#3a3a3a;color:#ddd}
+.skill-item.active{color:#7ec8e3;border-color:#7ec8e3}
+#skill-name{background:#222;color:#ddd;border:1px solid #444;padding:4px 8px;font-family:monospace;font-size:0.82rem;border-radius:3px;outline:none;width:160px}
+#skill-name:focus{border-color:#555}
+#skill-status{color:#7ee38e;font-size:0.8rem}
+#del-skill-btn{margin-left:auto;background:#5a1f1f;border-color:#8b3333;color:#ffaaaa}
+#del-skill-btn:hover{background:#6b2020}
+#new-skill-btn{width:100%;margin-bottom:6px}
+</style>
+</head>
+<body>
+<header>
+  <span id="ws-dot"></span>
+  <h1>&#x1F43E; MimiClaw</h1>
+  <span id="ip"></span>
+  <span id="mem"></span>
+  <button id="reboot-btn" onclick="doReboot()">&#x21BA; Reboot</button>
+</header>
+<nav>
+  <button class="active" onclick="showTab('log',this)">Live Log</button>
+  <button onclick="showTab('soul',this)">SOUL.md</button>
+  <button onclick="showTab('user',this)">USER.md</button>
+  <button onclick="showTab('memory',this)">MEMORY.md</button>
+  <button onclick="showTab('skills',this)">Skills</button>
+</nav>
+<div id="content">
+  <div id="log-panel"></div>
+  <div id="file-panel">
+    <div class="toolbar">
+      <button onclick="saveFile()">&#x1F4BE; Save</button>
+      <span id="status"></span>
+    </div>
+    <textarea id="editor" spellcheck="false"></textarea>
+  </div>
+  <div id="skill-panel">
+    <div id="skill-list-col">
+      <button id="new-skill-btn" onclick="newSkill()">+ New</button>
+    </div>
+    <div id="skill-edit-col">
+      <div class="toolbar">
+        <input id="skill-name" type="text" placeholder="skill-name" maxlength="48" spellcheck="false">
+        <button onclick="saveSkill()">&#x1F4BE; Save</button>
+        <span id="skill-status"></span>
+        <button id="del-skill-btn" onclick="deleteSkill()">&#x1F5D1; Delete</button>
+      </div>
+      <textarea id="skill-editor" spellcheck="false"></textarea>
+    </div>
+  </div>
+</div>
+<script>
+var ws,curTab='log',curFile=null,curSkill=null,reconnectTimer=null;
+var logEl=document.getElementById('log-panel');
+var dot=document.getElementById('ws-dot');
+document.getElementById('ip').textContent=location.host;
+
+/* ── WebSocket ── */
+function connect(){
+  if(ws){try{ws.close()}catch(e){}}
+  dot.className='';
+  ws=new WebSocket('ws://'+location.host+'/ws');
+  ws.onopen=function(){dot.className='on';addLog('ws','Connected')};
+  ws.onclose=function(){
+    dot.className='err';
+    addLog('err','Disconnected — retry in 4s');
+    clearTimeout(reconnectTimer);
+    reconnectTimer=setTimeout(connect,4000);
+  };
+  ws.onerror=function(){addLog('err','WebSocket error')};
+  ws.onmessage=function(ev){
+    try{
+      var d=JSON.parse(ev.data);
+      if(d.type==='monitor') addLog(d.event,'['+d.event+'] '+d.msg);
+      else if(d.type==='response'){
+        var p=d.content||'';
+        if(p.length>120) p=p.substring(0,120)+'...';
+        addLog('msg','[\u2192 '+d.chat_id+'] '+p);
+      }
+    }catch(e){addLog('ws',ev.data)}
+  };
+}
+
+function ts(){var n=new Date();return pad(n.getHours())+':'+pad(n.getMinutes())+':'+pad(n.getSeconds())}
+function pad(n){return n<10?'0'+n:n}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+function addLog(cls,text){
+  var el=document.createElement('div');
+  el.className='entry';
+  el.innerHTML='<span class="ts">'+ts()+'</span><span class="'+esc(cls)+'">'+esc(text)+'</span>';
+  logEl.appendChild(el);
+  logEl.scrollTop=logEl.scrollHeight;
+  while(logEl.children.length>300) logEl.removeChild(logEl.firstChild);
+}
+
+/* ── Tabs ── */
+function showTab(tab,btn){
+  document.querySelectorAll('nav button').forEach(function(b){b.classList.remove('active')});
+  btn.classList.add('active');
+  curTab=tab;
+  document.getElementById('log-panel').style.display=tab==='log'?'':'none';
+  document.getElementById('file-panel').style.display=(tab!=='log'&&tab!=='skills')?'flex':'none';
+  document.getElementById('skill-panel').style.display=tab==='skills'?'flex':'none';
+  if(tab==='skills'){loadSkillList();return}
+  if(tab!=='log'){
+    curFile=tab;
+    setStatus('Loading...');
+    fetch('/api/file?name='+tab)
+      .then(function(r){return r.text()})
+      .then(function(t){document.getElementById('editor').value=t;setStatus('')})
+      .catch(function(){setStatus('Load failed')});
+  }
+}
+
+/* ── File editor (soul/user/memory) ── */
+function saveFile(){
+  if(!curFile) return;
+  setStatus('Saving...');
+  fetch('/api/file?name='+curFile,{
+    method:'POST',
+    body:document.getElementById('editor').value,
+    headers:{'Content-Type':'text/plain;charset=utf-8'}
+  })
+  .then(function(r){return r.json()})
+  .then(function(j){
+    setStatus(j.ok?'Saved \u2713':'Save failed');
+    setTimeout(function(){setStatus('')},3000);
+  })
+  .catch(function(){setStatus('Save failed')});
+}
+
+function setStatus(msg){
+  var el=document.getElementById('status');
+  el.textContent=msg;
+}
+
+/* ── Skills ── */
+function loadSkillList(){
+  fetch('/api/skills')
+  .then(function(r){return r.json()})
+  .then(function(names){
+    var col=document.getElementById('skill-list-col');
+    /* Keep the New button, remove old skill items */
+    var items=col.querySelectorAll('.skill-item');
+    items.forEach(function(el){col.removeChild(el)});
+    names.forEach(function(n){
+      var b=document.createElement('button');
+      b.className='skill-item'+(n===curSkill?' active':'');
+      b.textContent=n;
+      b.onclick=function(){selectSkill(n)};
+      col.appendChild(b);
+    });
+  })
+  .catch(function(){});
+}
+
+function selectSkill(name){
+  curSkill=name;
+  document.getElementById('skill-name').value=name;
+  setSkillStatus('Loading...');
+  document.querySelectorAll('.skill-item').forEach(function(b){
+    b.classList.toggle('active',b.textContent===name);
+  });
+  fetch('/api/skill?name='+encodeURIComponent(name))
+  .then(function(r){return r.text()})
+  .then(function(t){document.getElementById('skill-editor').value=t;setSkillStatus('')})
+  .catch(function(){setSkillStatus('Load failed')});
+}
+
+function newSkill(){
+  curSkill=null;
+  document.getElementById('skill-name').value='';
+  document.getElementById('skill-editor').value=
+    '# New Skill\n\nDescribe what this skill does.\n\n## When to use\n\n## How to use\n1. \n';
+  setSkillStatus('');
+  document.querySelectorAll('.skill-item').forEach(function(b){b.classList.remove('active')});
+  document.getElementById('skill-name').focus();
+}
+
+function saveSkill(){
+  var name=document.getElementById('skill-name').value.trim();
+  if(!name){setSkillStatus('Name required');return}
+  setSkillStatus('Saving...');
+  fetch('/api/skill?name='+encodeURIComponent(name),{
+    method:'POST',
+    body:document.getElementById('skill-editor').value,
+    headers:{'Content-Type':'text/plain;charset=utf-8'}
+  })
+  .then(function(r){return r.json()})
+  .then(function(j){
+    if(j.ok){
+      curSkill=name;
+      loadSkillList();
+      setSkillStatus('Saved \u2713');
+      setTimeout(function(){setSkillStatus('')},3000);
+    } else setSkillStatus('Save failed');
+  })
+  .catch(function(){setSkillStatus('Save failed')});
+}
+
+function deleteSkill(){
+  if(!curSkill||!confirm('Delete "'+curSkill+'"?')) return;
+  fetch('/api/skill?name='+encodeURIComponent(curSkill),{method:'DELETE'})
+  .then(function(r){return r.json()})
+  .then(function(j){
+    if(j.ok){
+      curSkill=null;
+      document.getElementById('skill-name').value='';
+      document.getElementById('skill-editor').value='';
+      loadSkillList();
+    }
+  })
+  .catch(function(){});
+}
+
+function setSkillStatus(msg){
+  document.getElementById('skill-status').textContent=msg;
+}
+
+/* ── Sysinfo ── */
+function fetchSysinfo(){
+  fetch('/api/sysinfo')
+  .then(function(r){return r.json()})
+  .then(function(d){
+    var hf=Math.round(d.heap_free/1024);
+    var hm=Math.round(d.heap_min/1024);
+    var su=Math.round(d.spiffs_used/1024);
+    var st=Math.round(d.spiffs_total/1024);
+    document.getElementById('mem').textContent=
+      'RAM:'+hf+'K(min:'+hm+'K)  FS:'+su+'/'+st+'K';
+  })
+  .catch(function(){});
+}
+
+/* ── Reboot ── */
+function doReboot(){
+  if(!confirm('Reboot MimiClaw now?')) return;
+  fetch('/api/reboot',{method:'POST'})
+  .then(function(){addLog('err','Rebooting \u2014 reconnecting...')})
+  .catch(function(){addLog('err','Reboot sent')});
+}
+
+connect();
+fetchSysinfo();
+setInterval(fetchSysinfo,15000);
+</script>
+</body>
+</html>

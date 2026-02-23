@@ -433,10 +433,10 @@ esp_err_t telegram_bot_init(void)
 
 esp_err_t telegram_bot_start(void)
 {
-    BaseType_t ret = xTaskCreatePinnedToCore(
+    BaseType_t ret = xTaskCreate(
         telegram_poll_task, "tg_poll",
         MIMI_TG_POLL_STACK, NULL,
-        MIMI_TG_POLL_PRIO, NULL, MIMI_TG_POLL_CORE);
+        MIMI_TG_POLL_PRIO, NULL);
 
     return (ret == pdPASS) ? ESP_OK : ESP_FAIL;
 }

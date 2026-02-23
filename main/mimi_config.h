@@ -43,14 +43,14 @@
 /* Telegram Bot */
 #define MIMI_TG_POLL_TIMEOUT_S       30
 #define MIMI_TG_MAX_MSG_LEN          4096
-#define MIMI_TG_POLL_STACK           (12 * 1024)
+#define MIMI_TG_POLL_STACK           (8 * 1024)  /* Reduced from 12KB for ESP32-C6 */
 #define MIMI_TG_POLL_PRIO            5
 #define MIMI_TG_POLL_CORE            0
 #define MIMI_TG_CARD_SHOW_MS         3000
 #define MIMI_TG_CARD_BODY_SCALE      3
 
 /* Agent Loop */
-#define MIMI_AGENT_STACK             (24 * 1024)
+#define MIMI_AGENT_STACK             (16 * 1024)  /* Reduced from 24KB for ESP32-C6 */
 #define MIMI_AGENT_PRIO              6
 #define MIMI_AGENT_CORE              1
 #define MIMI_AGENT_MAX_HISTORY       20
@@ -68,13 +68,13 @@
 #define MIMI_LLM_API_URL             "https://api.anthropic.com/v1/messages"
 #define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
 #define MIMI_LLM_API_VERSION         "2023-06-01"
-#define MIMI_LLM_STREAM_BUF_SIZE     (32 * 1024)
+#define MIMI_LLM_STREAM_BUF_SIZE     (8 * 1024)  /* Reduced from 32KB for ESP32-C6 */
 #define MIMI_LLM_LOG_VERBOSE_PAYLOAD 0
 #define MIMI_LLM_LOG_PREVIEW_BYTES   160
 
 /* Message Bus */
 #define MIMI_BUS_QUEUE_LEN           16
-#define MIMI_OUTBOUND_STACK          (12 * 1024)
+#define MIMI_OUTBOUND_STACK          (6 * 1024)  /* Reduced from 12KB for ESP32-C6 */
 #define MIMI_OUTBOUND_PRIO           5
 #define MIMI_OUTBOUND_CORE           0
 
@@ -86,8 +86,8 @@
 #define MIMI_MEMORY_FILE             "/spiffs/memory/MEMORY.md"
 #define MIMI_SOUL_FILE               "/spiffs/config/SOUL.md"
 #define MIMI_USER_FILE               "/spiffs/config/USER.md"
-#define MIMI_CONTEXT_BUF_SIZE        (16 * 1024)
-#define MIMI_SESSION_MAX_MSGS        20
+#define MIMI_CONTEXT_BUF_SIZE        (4 * 1024)  /* Reduced from 16KB for ESP32-C6 */
+#define MIMI_SESSION_MAX_MSGS        15  /* Reduced from 20 for ESP32-C6 to save memory */
 
 /* Cron / Heartbeat */
 #define MIMI_CRON_FILE               "/spiffs/cron.json"
@@ -100,11 +100,11 @@
 #define MIMI_SKILLS_PREFIX           "/spiffs/skills/"
 
 /* WebSocket Gateway */
-#define MIMI_WS_PORT                 18789
+#define MIMI_WS_PORT                 80
 #define MIMI_WS_MAX_CLIENTS          4
 
 /* Serial CLI */
-#define MIMI_CLI_STACK               (4 * 1024)
+#define MIMI_CLI_STACK               (3 * 1024)  /* Reduced from 4KB for ESP32-C6 */
 #define MIMI_CLI_PRIO                3
 #define MIMI_CLI_CORE                0
 

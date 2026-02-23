@@ -91,7 +91,7 @@ typedef struct {
 
 static esp_err_t resp_buf_init(resp_buf_t *rb, size_t initial_cap)
 {
-    rb->data = heap_caps_calloc(1, initial_cap, MALLOC_CAP_SPIRAM);
+    rb->data = calloc(1, initial_cap);  /* Using internal SRAM for ESP32-C6 (no PSRAM) */
     if (!rb->data) return ESP_ERR_NO_MEM;
     rb->len = 0;
     rb->cap = initial_cap;

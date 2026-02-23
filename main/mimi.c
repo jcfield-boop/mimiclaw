@@ -8,6 +8,10 @@
 #include "esp_heap_caps.h"
 #include "esp_spiffs.h"
 #include "nvs_flash.h"
+#include "esp_sntp.h"
+#include "esp_app_desc.h"
+#include <time.h>
+#include <sys/time.h>
 
 #include "mimi_config.h"
 #include "bus/message_bus.h"
@@ -28,6 +32,24 @@
 #include "skills/skill_loader.h"
 
 static const char *TAG = "mimi";
+
+/* Set system clock to compile time if SNTP fails.
+ * This ensures TLS cert validation passes since build time
+ * is always within any cert's validity window. */
+static void set_time_from_build(void)
+{
+    const esp_app_desc_t *desc = esp_app_get_description();
+    struct tm t = {0};
+    strptime(desc->date, "%b %d %Y", &t);
+    strptime(desc->time, "%H:%M:%S", &t);
+    t.tm_isdst = -1;
+    time_t build_time = mktime(&t);
+    if (build_time > 0) {
+        struct timeval tv = { .tv_sec = build_time };
+        settimeofday(&tv, NULL);
+        ESP_LOGW(TAG, "Using build timestamp as clock: %s %s", desc->date, desc->time);
+    }
+}
 
 static esp_err_t init_nvs(void)
 {
@@ -101,19 +123,25 @@ void app_main(void)
     esp_log_level_set("esp-x509-crt-bundle", ESP_LOG_WARN);
 
     ESP_LOGI(TAG, "========================================");
-    ESP_LOGI(TAG, "  MimiClaw - ESP32-S3 AI Agent");
+    ESP_LOGI(TAG, "  MimiClaw - ESP32-C6 Port");
     ESP_LOGI(TAG, "========================================");
 
     /* Print memory info */
     ESP_LOGI(TAG, "Internal free: %d bytes",
              (int)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+#if CONFIG_SPIRAM
     ESP_LOGI(TAG, "PSRAM free:    %d bytes",
              (int)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+#else
+    ESP_LOGI(TAG, "PSRAM: Not available (ESP32-C6)");
+#endif
 
     /* Input */
     button_Init();
+#if !defined(CONFIG_IDF_TARGET_ESP32C6)
     imu_manager_init();
     imu_manager_set_shake_callback(NULL);
+#endif
 
     /* Phase 1: Core infrastructure */
     ESP_ERROR_CHECK(init_nvs());
@@ -146,11 +174,30 @@ void app_main(void)
         if (wifi_manager_wait_connected(30000) == ESP_OK) {
             ESP_LOGI(TAG, "WiFi connected: %s", wifi_manager_get_ip());
 
+            /* Sync system clock via SNTP before any TLS connections.
+             * Multiple servers tried; if UDP/123 is blocked, fall back
+             * to the firmware build timestamp so TLS certs validate. */
+            esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+            esp_sntp_setservername(0, "pool.ntp.org");
+            esp_sntp_setservername(1, "time.google.com");
+            esp_sntp_setservername(2, "time.cloudflare.com");
+            esp_sntp_init();
+            int sntp_retries = 0;
+            while (sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED && sntp_retries++ < 20) {
+                vTaskDelay(pdMS_TO_TICKS(500));
+            }
+            if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
+                ESP_LOGI(TAG, "Time synced via SNTP");
+            } else {
+                ESP_LOGW(TAG, "SNTP unavailable — using build timestamp fallback");
+                set_time_from_build();
+            }
+
             /* Outbound dispatch task should start first to avoid dropping early replies. */
-            ESP_ERROR_CHECK((xTaskCreatePinnedToCore(
+            ESP_ERROR_CHECK((xTaskCreate(
                 outbound_dispatch_task, "outbound",
                 MIMI_OUTBOUND_STACK, NULL,
-                MIMI_OUTBOUND_PRIO, NULL, MIMI_OUTBOUND_CORE) == pdPASS)
+                MIMI_OUTBOUND_PRIO, NULL) == pdPASS)
                 ? ESP_OK : ESP_FAIL);
 
             /* Start network-dependent services */

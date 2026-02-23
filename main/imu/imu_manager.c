@@ -46,7 +46,7 @@ void imu_manager_init(void)
 {
     I2C_Init();
     QMI8658_Init();
-    xTaskCreatePinnedToCore(imu_task, "imu_task", 4096, NULL, 4, NULL, 0);
+    xTaskCreate(imu_task, "imu_task", 4096, NULL, 4, NULL);
 }
 
 void imu_manager_set_shake_callback(imu_shake_cb_t cb)
