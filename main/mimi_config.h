@@ -64,14 +64,14 @@
 /* LLM */
 #define MIMI_LLM_DEFAULT_MODEL       "claude-opus-4-5"
 #define MIMI_LLM_PROVIDER_DEFAULT    "anthropic"
-#define MIMI_LLM_MAX_TOKENS          4096
+#define MIMI_LLM_MAX_TOKENS          1500 /* ~6KB JSON max — fits safely in 16KB buffer */
 #define MIMI_LLM_API_URL             "https://api.anthropic.com/v1/messages"
 #define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
 #define MIMI_OPENROUTER_API_URL      "https://openrouter.ai/api/v1/chat/completions"
 #define MIMI_OPENROUTER_REFERER      "https://github.com/memovai/mimiclaw"
 #define MIMI_OPENROUTER_TITLE        "C6PO"
 #define MIMI_LLM_API_VERSION         "2023-06-01"
-#define MIMI_LLM_STREAM_BUF_SIZE     (8 * 1024)  /* Reduced from 32KB for ESP32-C6 */
+#define MIMI_LLM_STREAM_BUF_SIZE     (16 * 1024) /* 16KB: daily briefing responses exceed 8KB */
 #define MIMI_LLM_LOG_VERBOSE_PAYLOAD 0
 #define MIMI_LLM_LOG_PREVIEW_BYTES   160
 
