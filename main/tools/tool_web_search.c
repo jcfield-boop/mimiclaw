@@ -15,6 +15,12 @@ static const char *TAG = "web_search";
 
 static char s_search_key[128] = {0};
 
+/* Cost tracking: Brave Pro = $3/1000 queries = 300 millicents/call */
+#define BRAVE_COST_PER_CALL_MILLICENTS 300
+
+static uint32_t s_total_searches        = 0;
+static uint32_t s_search_cost_millicents = 0;
+
 #define SEARCH_BUF_SIZE     (16 * 1024)
 #define SEARCH_RESULT_COUNT 5
 
@@ -69,6 +75,12 @@ esp_err_t tool_web_search_init(void)
 }
 
 const char *tool_web_search_get_key(void) { return s_search_key; }
+
+void tool_web_search_get_stats(uint32_t *calls, uint32_t *cost_millicents)
+{
+    if (calls)          *calls          = s_total_searches;
+    if (cost_millicents) *cost_millicents = s_search_cost_millicents;
+}
 
 /* ── URL-encode a query string ────────────────────────────────── */
 
@@ -295,7 +307,9 @@ esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t o
     format_results(root, output, output_size);
     cJSON_Delete(root);
 
-    ESP_LOGI(TAG, "Search complete, %d bytes result", (int)strlen(output));
+    s_total_searches++;
+    s_search_cost_millicents += BRAVE_COST_PER_CALL_MILLICENTS;
+    ESP_LOGI(TAG, "Search complete, %d bytes result (total calls: %u)", (int)strlen(output), (unsigned)s_total_searches);
     return ESP_OK;
 }
 

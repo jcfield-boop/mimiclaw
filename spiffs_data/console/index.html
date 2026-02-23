@@ -310,11 +310,14 @@ function fetchSysinfo(){
     var st=Math.round(d.spiffs_total/1024);
     document.getElementById('mem').textContent=
       'RAM:'+hf+'K(min:'+hm+'K)  FS:'+su+'/'+st+'K';
-    var ti=d.tokens_in||0,to=d.tokens_out||0,cm=d.cost_millicents||0;
+    var ti=d.tokens_in||0,to=d.tokens_out||0,llmCost=d.cost_millicents||0;
+    var sc=d.search_calls||0,sCost=d.search_cost_millicents||0;
+    var totalCost=llmCost+sCost;
     var tokStr='Tok:'+ti+'\u2191'+to+'\u2193';
-    if(cm>0){
-      var dollars=(cm/100000).toFixed(4);
-      tokStr+='  $'+dollars;
+    if(sc>0) tokStr+='  Search:'+sc;
+    if(totalCost>0){
+      var dollars=(totalCost/100000).toFixed(4);
+      tokStr+='  Cost:$'+dollars;
     }
     document.getElementById('tok').textContent=tokStr;
   })

@@ -27,3 +27,10 @@ esp_err_t tool_web_search_set_key(const char *api_key);
  * Return the currently configured Brave Search API key (may be empty).
  */
 const char *tool_web_search_get_key(void);
+
+/**
+ * Return cumulative session search stats.
+ * @param calls           Total successful searches this session (may be NULL)
+ * @param cost_millicents Estimated cost in 1/1000 cents at Brave Pro rate (may be NULL)
+ */
+void tool_web_search_get_stats(uint32_t *calls, uint32_t *cost_millicents);

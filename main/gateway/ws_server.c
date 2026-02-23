@@ -444,16 +444,21 @@ static esp_err_t sysinfo_handler(httpd_req_t *req)
     size_t spiffs_total = 0, spiffs_used = 0;
     esp_spiffs_info(NULL, &spiffs_total, &spiffs_used);
 
-    uint32_t tok_in = 0, tok_out = 0, cost_mc = 0;
-    llm_get_session_stats(&tok_in, &tok_out, &cost_mc);
+    uint32_t tok_in = 0, tok_out = 0, llm_cost_mc = 0;
+    llm_get_session_stats(&tok_in, &tok_out, &llm_cost_mc);
 
-    char buf[256];
+    uint32_t search_calls = 0, search_cost_mc = 0;
+    tool_web_search_get_stats(&search_calls, &search_cost_mc);
+
+    char buf[384];
     snprintf(buf, sizeof(buf),
              "{\"heap_free\":%u,\"heap_min\":%u,\"spiffs_total\":%u,\"spiffs_used\":%u"
-             ",\"tokens_in\":%u,\"tokens_out\":%u,\"cost_millicents\":%u}",
+             ",\"tokens_in\":%u,\"tokens_out\":%u,\"cost_millicents\":%u"
+             ",\"search_calls\":%u,\"search_cost_millicents\":%u}",
              (unsigned)heap_free, (unsigned)heap_min,
              (unsigned)spiffs_total, (unsigned)spiffs_used,
-             (unsigned)tok_in, (unsigned)tok_out, (unsigned)cost_mc);
+             (unsigned)tok_in, (unsigned)tok_out, (unsigned)llm_cost_mc,
+             (unsigned)search_calls, (unsigned)search_cost_mc);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_sendstr(req, buf);
