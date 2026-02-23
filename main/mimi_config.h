@@ -67,6 +67,9 @@
 #define MIMI_LLM_MAX_TOKENS          4096
 #define MIMI_LLM_API_URL             "https://api.anthropic.com/v1/messages"
 #define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
+#define MIMI_OPENROUTER_API_URL      "https://openrouter.ai/api/v1/chat/completions"
+#define MIMI_OPENROUTER_REFERER      "https://github.com/memovai/mimiclaw"
+#define MIMI_OPENROUTER_TITLE        "MimiClaw"
 #define MIMI_LLM_API_VERSION         "2023-06-01"
 #define MIMI_LLM_STREAM_BUF_SIZE     (8 * 1024)  /* Reduced from 32KB for ESP32-C6 */
 #define MIMI_LLM_LOG_VERBOSE_PAYLOAD 0
