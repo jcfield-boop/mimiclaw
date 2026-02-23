@@ -171,9 +171,10 @@ static esp_err_t console_get_handler(httpd_req_t *req)
 
 static const char *name_to_path(const char *name)
 {
-    if (name && strcmp(name, "soul")   == 0) return MIMI_SOUL_FILE;
-    if (name && strcmp(name, "user")   == 0) return MIMI_USER_FILE;
-    if (name && strcmp(name, "memory") == 0) return MIMI_MEMORY_FILE;
+    if (name && strcmp(name, "soul")      == 0) return MIMI_SOUL_FILE;
+    if (name && strcmp(name, "user")      == 0) return MIMI_USER_FILE;
+    if (name && strcmp(name, "memory")   == 0) return MIMI_MEMORY_FILE;
+    if (name && strcmp(name, "heartbeat") == 0) return MIMI_HEARTBEAT_FILE;
     return NULL;
 }
 
