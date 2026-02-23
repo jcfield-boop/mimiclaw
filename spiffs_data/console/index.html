@@ -71,6 +71,7 @@ textarea:focus{border-color:#555}
 </header>
 <nav>
   <button class="active" onclick="showTab('log',this)">Live Log</button>
+  <button id="clear-log-btn" onclick="clearLog()" style="border:none;border-radius:0;padding:8px 10px;color:#666;background:transparent;font-size:0.75rem" title="Clear log">&#x2715;</button>
   <button onclick="showTab('soul',this)">SOUL.md</button>
   <button onclick="showTab('user',this)">USER.md</button>
   <button onclick="showTab('memory',this)">MEMORY.md</button>
@@ -164,14 +165,23 @@ function ts(){var n=new Date();return pad(n.getHours())+':'+pad(n.getMinutes())+
 function pad(n){return n<10?'0'+n:n}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
+var LOG_MAX=250,LOG_TRIM=80;
 function addLog(cls,text){
   var el=document.createElement('div');
   el.className='entry';
   el.innerHTML='<span class="ts">'+ts()+'</span><span class="'+esc(cls)+'">'+esc(text)+'</span>';
   logEl.appendChild(el);
+  if(logEl.children.length>LOG_MAX){
+    var n=logEl.children.length-LOG_MAX+LOG_TRIM;
+    for(var i=0;i<n;i++) logEl.removeChild(logEl.firstChild);
+    var sep=document.createElement('div');
+    sep.className='entry';
+    sep.innerHTML='<span class="ts">'+ts()+'</span><span class="ws">--- '+n+' older entries removed ---</span>';
+    logEl.insertBefore(sep,logEl.firstChild);
+  }
   logEl.scrollTop=logEl.scrollHeight;
-  while(logEl.children.length>300) logEl.removeChild(logEl.firstChild);
 }
+function clearLog(){logEl.innerHTML='';addLog('ws','Log cleared')}
 
 /* ── Tabs ── */
 function showTab(tab,btn){

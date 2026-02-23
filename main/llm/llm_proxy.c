@@ -1,6 +1,7 @@
 #include "llm_proxy.h"
 #include "mimi_config.h"
 #include "proxy/http_proxy.h"
+#include "gateway/ws_server.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -600,7 +601,10 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     free(post_data);
 
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "HTTP request failed: %s", esp_err_to_name(err));
+        char emsg[80];
+        snprintf(emsg, sizeof(emsg), "LLM HTTP failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "%s", emsg);
+        ws_server_broadcast_monitor("error", emsg);
         llm_log_payload("LLM tools partial response", rb.data);
         resp_buf_free(&rb);
         return err;
@@ -609,7 +613,13 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     llm_log_payload("LLM tools raw response", rb.data);
 
     if (status != 200) {
-        ESP_LOGE(TAG, "API error %d: %.500s", status, rb.data ? rb.data : "");
+        /* Broadcast the first ~120 chars of the error body (strip control chars) */
+        char emsg[160];
+        snprintf(emsg, sizeof(emsg), "LLM API error %d: %.110s",
+                 status, rb.data ? rb.data : "");
+        for (char *p = emsg; *p; p++) if ((unsigned char)*p < 32) *p = ' ';
+        ESP_LOGE(TAG, "%s", emsg);
+        ws_server_broadcast_monitor("error", emsg);
         resp_buf_free(&rb);
         return ESP_FAIL;
     }
@@ -620,6 +630,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
 
     if (!root) {
         ESP_LOGE(TAG, "Failed to parse API response JSON");
+        ws_server_broadcast_monitor("error", "LLM: failed to parse API response (truncated?)");
         return ESP_FAIL;
     }
 
@@ -781,6 +792,15 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     ESP_LOGI(TAG, "Response: %d bytes text, %d tool calls, stop=%s",
              (int)resp->text_len, resp->call_count,
              resp->tool_use ? "tool_use" : "end_turn");
+
+    {
+        char summary[96];
+        snprintf(summary, sizeof(summary), "LLM: %lu\u2191 %lu\u2193 tok, %d tool%s, stop=%s",
+                 (unsigned long)resp->input_tokens, (unsigned long)resp->output_tokens,
+                 resp->call_count, resp->call_count == 1 ? "" : "s",
+                 resp->tool_use ? "tool_use" : "end_turn");
+        ws_server_broadcast_monitor("llm", summary);
+    }
 
     return ESP_OK;
 }

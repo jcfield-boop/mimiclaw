@@ -157,7 +157,24 @@ static cJSON *build_tool_results(const llm_response_t *resp, const mimi_msg_t *m
         tool_registry_execute(call->name, tool_input, tool_output, tool_output_size);
         free(patched_input);
 
-        ESP_LOGI(TAG, "Tool %s result: %d bytes", call->name, (int)strlen(tool_output));
+        int tool_out_len = (int)strlen(tool_output);
+        ESP_LOGI(TAG, "Tool %s result: %d bytes", call->name, tool_out_len);
+
+        /* Broadcast tool error or a brief result preview to the live log */
+        if (strncmp(tool_output, "Error:", 6) == 0) {
+            char emsg[160];
+            snprintf(emsg, sizeof(emsg), "[%s] %.100s", call->name, tool_output);
+            ws_server_broadcast_monitor("error", emsg);
+        } else {
+            char preview[128];
+            snprintf(preview, sizeof(preview), "[%s] %d bytes: %.40s%s",
+                     call->name, tool_out_len,
+                     tool_output,
+                     tool_out_len > 40 ? "..." : "");
+            /* strip newlines in preview */
+            for (char *p = preview; *p; p++) if (*p == '\n' || *p == '\r') *p = ' ';
+            ws_server_broadcast_monitor("tool", preview);
+        }
 
         /* Build tool_result block */
         cJSON *result_block = cJSON_CreateObject();
@@ -246,7 +263,10 @@ static void agent_loop_task(void *arg)
             err = llm_chat_tools(system_prompt, messages, tools_json, &resp);
 
             if (err != ESP_OK) {
-                ESP_LOGE(TAG, "LLM call failed: %s", esp_err_to_name(err));
+                char emsg[80];
+                snprintf(emsg, sizeof(emsg), "LLM call failed: %s", esp_err_to_name(err));
+                ESP_LOGE(TAG, "%s", emsg);
+                ws_server_broadcast_monitor("error", emsg);
                 break;
             }
 
@@ -280,6 +300,14 @@ static void agent_loop_task(void *arg)
 
         cJSON_Delete(messages);
 
+        /* Warn if we hit the tool iteration cap without a final response */
+        if (!final_text && iteration >= MIMI_AGENT_MAX_TOOL_ITER) {
+            char emsg[64];
+            snprintf(emsg, sizeof(emsg), "agent: max tool iterations (%d) reached", MIMI_AGENT_MAX_TOOL_ITER);
+            ESP_LOGW(TAG, "%s", emsg);
+            ws_server_broadcast_monitor("error", emsg);
+        }
+
         /* 5. Send response */
         if (final_text && final_text[0]) {
             /* Save to session (only user text + final assistant text) */
@@ -311,6 +339,7 @@ static void agent_loop_task(void *arg)
         } else {
             /* Error or empty response */
             free(final_text);
+            ws_server_broadcast_monitor("error", "agent: LLM returned empty response");
             mimi_msg_t out = {0};
             strncpy(out.channel, msg.channel, sizeof(out.channel) - 1);
             strncpy(out.chat_id, msg.chat_id, sizeof(out.chat_id) - 1);
