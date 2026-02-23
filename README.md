@@ -59,6 +59,54 @@ The header shows live free heap and SPIFFS usage, refreshed every 15 seconds.
 
 ---
 
+## Getting Started
+
+### 1. Prerequisites
+
+- An **ESP32-C6** board (4MB flash)
+- [ESP-IDF v5.x or v6.x](https://docs.espressif.com/projects/esp-idf/en/stable/esp32c6/get-started/) installed and sourced
+- A **Telegram bot token** — create one via [@BotFather](https://t.me/botfather) on Telegram
+- An **LLM API key** — [Anthropic](https://console.anthropic.com), [OpenRouter](https://openrouter.ai/settings/keys), or any OpenAI-compatible provider
+
+### 2. Build & flash
+
+```bash
+idf.py set-target esp32c6
+idf.py build
+idf.py -p /dev/ttyUSB0 flash
+```
+
+Replace `/dev/ttyUSB0` with your actual serial port (`/dev/cu.usbmodem*` on macOS).
+
+### 3. Configure over serial
+
+Connect at 115200 baud (e.g. `screen /dev/ttyUSB0 115200`) and run:
+
+```
+set_wifi <your-ssid> <your-password>
+set_tg_token <your-telegram-bot-token>
+set_model_provider anthropic
+set_api_key <your-api-key>
+set_model claude-opus-4-5
+restart
+```
+
+### 4. Verify boot
+
+After restart, the serial log will print the device IP address once WiFi connects:
+
+```
+I (1234) wifi: connected, IP: 192.168.x.x
+```
+
+Open `http://<device-ip>` in a browser to access the web console.
+
+### 5. Send your first message
+
+Open Telegram, find your bot, and send it a message. You should get an AI reply within a few seconds.
+
+---
+
 ## Build & Flash
 
 ### Prerequisites
