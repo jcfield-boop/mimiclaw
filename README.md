@@ -49,10 +49,10 @@ Browse to `http://<device-ip>` after it connects to WiFi (the IP is printed in t
 
 | Tab | Description |
 |---|---|
-| **Live Log** | WebSocket stream of LLM calls, tool executions, and responses in real time |
+| **Live Log** | Real-time stream of LLM calls, tool results, errors, and responses. Shows token counts per call and full error bodies from the API. Capped at 250 entries; use the ✕ button to clear. |
 | **SOUL.md** | The bot's personality and values |
 | **USER.md** | Notes about you — the bot reads this on every turn |
-| **MEMORY.md** | Long-term memory written by the bot itself |
+| **MEMORY.md** | Long-term memory written by the bot itself (auto-trimmed to 3 KB) |
 | **Skills** | List, create, edit, and delete skill files |
 | **HEARTBEAT.md** | Recurring task list — the bot checks this on a timer and acts on uncompleted items |
 | **Settings** | Set LLM provider/model/API key and Brave Search key from the browser |
@@ -222,6 +222,20 @@ Create new skills from the **Skills tab** in the web console, or just ask the bo
 > "Create a skill that translates text to French"
 
 > **Note:** Skills are stored in SPIFFS. Custom skills are reset by `idf.py flash` (full flash). Use `idf.py app-flash` to update firmware without touching SPIFFS.
+
+---
+
+## Memory Management
+
+C6PO automatically manages its storage to stay within the 1.9 MB SPIFFS limit:
+
+| File | Behaviour |
+|---|---|
+| `SOUL.md`, `USER.md`, `HEARTBEAT.md` | Persist across firmware flashes — only created from defaults if missing |
+| `MEMORY.md` | Auto-trimmed to 3 KB when the agent writes to it (oldest content dropped) |
+| `memory/YYYY-MM-DD.md` | Daily notes older than 7 days are deleted on boot |
+| Sessions (`sessions/*.json`) | Each chat capped at 15 messages; use `session_clear <id>` to reset |
+| Skills (`skills/*.md`) | No automatic pruning — manage via the Skills tab or `skill_list` CLI |
 
 ---
 
