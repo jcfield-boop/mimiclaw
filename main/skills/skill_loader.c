@@ -57,7 +57,7 @@ static const char *TAG = "skills";
 #define BUILTIN_SKILL_CREATOR \
     "# Skill Creator\n" \
     "\n" \
-    "Create new skills for MimiClaw.\n" \
+    "Create new skills for C6PO.\n" \
     "\n" \
     "## When to use\n" \
     "When the user asks to create a new skill, teach the bot something, or add a new capability.\n" \

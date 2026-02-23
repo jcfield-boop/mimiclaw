@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MimiClaw Console</title>
+<title>C6PO Console</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:monospace;background:#1a1a1a;color:#e0e0e0;height:100vh;display:flex;flex-direction:column;font-size:14px}
@@ -54,7 +54,7 @@ textarea:focus{border-color:#555}
 <body>
 <header>
   <span id="ws-dot"></span>
-  <h1>&#x1F43E; MimiClaw</h1>
+  <h1>&#x1F916; C6PO</h1>
   <span id="ip"></span>
   <span id="mem"></span>
   <button id="reboot-btn" onclick="doReboot()">&#x21BA; Reboot</button>
@@ -276,7 +276,7 @@ function fetchSysinfo(){
 
 /* ── Reboot ── */
 function doReboot(){
-  if(!confirm('Reboot MimiClaw now?')) return;
+  if(!confirm('Reboot C6PO now?')) return;
   fetch('/api/reboot',{method:'POST'})
   .then(function(){addLog('err','Rebooting \u2014 reconnecting...')})
   .catch(function(){addLog('err','Reboot sent')});

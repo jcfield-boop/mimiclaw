@@ -123,7 +123,7 @@ void app_main(void)
     esp_log_level_set("esp-x509-crt-bundle", ESP_LOG_WARN);
 
     ESP_LOGI(TAG, "========================================");
-    ESP_LOGI(TAG, "  MimiClaw - ESP32-C6 Port");
+    ESP_LOGI(TAG, "  C6PO - ESP32-C6 AI Assistant");
     ESP_LOGI(TAG, "========================================");
 
     /* Print memory info */
@@ -215,5 +215,5 @@ void app_main(void)
         ESP_LOGW(TAG, "No WiFi credentials. Set MIMI_SECRET_WIFI_SSID in mimi_secrets.h");
     }
 
-    ESP_LOGI(TAG, "MimiClaw ready. Type 'help' for CLI commands.");
+    ESP_LOGI(TAG, "C6PO ready. Type 'help' for CLI commands.");
 }

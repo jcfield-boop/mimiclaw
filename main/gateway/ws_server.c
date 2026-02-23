@@ -461,7 +461,7 @@ esp_err_t ws_server_start(void)
     httpd_config_t config    = HTTPD_DEFAULT_CONFIG();
     config.server_port       = MIMI_WS_PORT;
     config.ctrl_port         = MIMI_WS_PORT + 1;
-    config.max_open_sockets  = MIMI_WS_MAX_CLIENTS + 2; /* +2 for HTTP connections */
+    config.max_open_sockets  = 4; /* lwIP max_sockets(8) minus 3 internal = 5 max; use 4 to be safe */
     config.stack_size        = 8192;                     /* SPIFFS I/O needs headroom */
     config.max_uri_handlers  = 14;
 

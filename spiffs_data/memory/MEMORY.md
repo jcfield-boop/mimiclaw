@@ -1,3 +1,1 @@
-# Long-term Memory
-
-(empty - MimiClaw will write memories here as it learns)
+(empty - C6PO will write memories here as it learns)

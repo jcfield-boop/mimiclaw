@@ -1,266 +1,179 @@
-# MimiClaw: Pocket AI Assistant on a $5 Chip
+# C6PO — ESP32-C6 AI Assistant
 
-<p align="center">
-  <img src="assets/banner.png" alt="MimiClaw" width="500" />
-</p>
+C6PO is a personal AI assistant that runs entirely on an **ESP32-C6** microcontroller. It is a port of the [MimiClaw](https://github.com/memovai/mimiclaw) project, adapted for the ESP32-C6's 4MB flash and 512KB SRAM (no PSRAM required).
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="https://deepwiki.com/memovai/mimiclaw"><img src="https://img.shields.io/badge/DeepWiki-mimiclaw-blue.svg" alt="DeepWiki"></a>
-  <a href="https://discord.gg/r8ZxSvB8Yr"><img src="https://img.shields.io/badge/Discord-mimiclaw-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="https://x.com/ssslvky"><img src="https://img.shields.io/badge/X-@ssslvky-black?logo=x" alt="X"></a>
-</p>
+C6PO connects to Telegram and a browser-based web console, calls an LLM (Claude, OpenRouter, or any OpenAI-compatible API) to handle conversations, and uses tools — web search, file I/O, cron scheduling — to be genuinely useful.
 
-<p align="center">
-  <strong><a href="README.md">English</a> | <a href="README_CN.md">中文</a> | <a href="README_JA.md">日本語</a></strong>
-</p>
+---
 
-**The world's first AI assistant(OpenClaw) on a $5 chip. No Linux. No Node.js. Just pure C**
+## Hardware
 
-MimiClaw turns a tiny ESP32-S3 board into a personal AI assistant. Plug it into USB power, connect to WiFi, and talk to it through Telegram — it handles any task you throw at it and evolves over time with local memory — all on a chip the size of a thumb.
+| | |
+|---|---|
+| **Board** | ESP32-C6 (4MB flash) |
+| **PSRAM** | Not required |
+| **WiFi** | 2.4 GHz (802.11ax / WiFi 6) |
 
-## Meet MimiClaw
+Tested on: ESP32-C6FH4 (revision v0.2).
 
-- **Tiny** — No Linux, no Node.js, no bloat — just pure C
-- **Handy** — Message it from Telegram, it handles the rest
-- **Loyal** — Learns from memory, remembers across reboots
-- **Energetic** — USB power, 0.5 W, runs 24/7
-- **Lovable** — One ESP32-S3 board, $5, nothing else
+---
 
-## How It Works
+## Features
 
-![](assets/mimiclaw.png)
+- **Telegram bot** — send messages, get AI replies, full conversation history per chat
+- **Web console** on port 80 — live activity log, file editors, skills manager, memory monitor
+- **LLM providers** — Anthropic (Claude), OpenRouter (300+ models), or any OpenAI-compatible endpoint
+- **Tool use** — web search, read/write/edit SPIFFS files, cron scheduling
+- **Skills system** — teach the bot new capabilities via Markdown files; create/edit/delete from the browser
+- **Session memory** — per-chat conversation history stored in SPIFFS
+- **Long-term memory** — persistent MEMORY.md updated by the agent over time
+- **Cron / heartbeat** — schedule recurring tasks and daily briefings
+- **Serial CLI** — configure everything over USB without reflashing
 
-You send a message on Telegram. The ESP32-S3 picks it up over WiFi, feeds it into an agent loop — the LLM thinks, calls tools, reads memory — and sends the reply back. Supports both **Anthropic (Claude)** and **OpenAI (GPT)** as providers, switchable at runtime. Everything runs on a single $5 chip with all your data stored locally on flash.
+---
 
-## Quick Start
+## Web Console
 
-### What You Need
+Browse to `http://c6po.local` (or the device IP) after it connects to WiFi.
 
-- An **ESP32-S3 dev board** with 16 MB flash and 8 MB PSRAM (e.g. Xiaozhi AI board, ~$10)
-- A **USB Type-C cable**
-- A **Telegram bot token** — talk to [@BotFather](https://t.me/BotFather) on Telegram to create one
-- An **Anthropic API key** — from [console.anthropic.com](https://console.anthropic.com), or an **OpenAI API key** — from [platform.openai.com](https://platform.openai.com)
+| Tab | Description |
+|---|---|
+| **Live Log** | WebSocket stream of LLM calls, tool executions, and responses in real time |
+| **SOUL.md** | The bot's personality and values |
+| **USER.md** | Notes about you — the bot reads this on every turn |
+| **MEMORY.md** | Long-term memory written by the bot itself |
+| **Skills** | List, create, edit, and delete skill files |
 
-### Install
+The header shows live free heap and SPIFFS usage, refreshed every 15 seconds.
 
-```bash
-# You need ESP-IDF v5.5+ installed first:
-# https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/get-started/
+---
 
-git clone https://github.com/memovai/mimiclaw.git
-cd mimiclaw
+## Build & Flash
 
-idf.py set-target esp32s3
-```
+### Prerequisites
 
-<details>
-<summary>Ubuntu Install</summary>
+- [ESP-IDF v5.x or v6.x](https://docs.espressif.com/projects/esp-idf/en/stable/esp32c6/get-started/)
 
-Recommended baseline:
-
-- Ubuntu 22.04/24.04
-- Python >= 3.10
-- CMake >= 3.16
-- Ninja >= 1.10
-- Git >= 2.34
-- flex >= 2.6
-- bison >= 3.8
-- gperf >= 3.1
-- dfu-util >= 0.11
-- `libusb-1.0-0`, `libffi-dev`, `libssl-dev`
-
-Install and build on Ubuntu:
+### Build
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y git wget flex bison gperf python3 python3-pip python3-venv \
-  cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
-
-./scripts/setup_idf_ubuntu.sh
-./scripts/build_ubuntu.sh
+idf.py set-target esp32c6
+idf.py build
 ```
 
-</details>
-
-<details>
-<summary>macOS Install</summary>
-
-Recommended baseline:
-
-- macOS 12/13/14
-- Xcode Command Line Tools
-- Homebrew
-- Python >= 3.10
-- CMake >= 3.16
-- Ninja >= 1.10
-- Git >= 2.34
-- flex >= 2.6
-- bison >= 3.8
-- gperf >= 3.1
-- dfu-util >= 0.11
-- `libusb`, `libffi`, `openssl`
-
-Install and build on macOS:
+### Flash
 
 ```bash
-xcode-select --install
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-./scripts/setup_idf_macos.sh
-./scripts/build_macos.sh
+idf.py -p /dev/ttyUSB0 flash
 ```
 
-</details>
+This flashes firmware and SPIFFS (web console + default config files) in one step.
 
-### Configure
-
-MimiClaw uses a **two-layer config** system: build-time defaults in `mimi_secrets.h`, with runtime overrides via the serial CLI. CLI values are stored in NVS flash and take priority over build-time values.
+### Monitor boot
 
 ```bash
-cp main/mimi_secrets.h.example main/mimi_secrets.h
+# idf.py monitor requires an interactive TTY; use screen instead:
+screen /dev/ttyUSB0 115200
 ```
 
-Edit `main/mimi_secrets.h`:
+---
 
-```c
-#define MIMI_SECRET_WIFI_SSID       "YourWiFiName"
-#define MIMI_SECRET_WIFI_PASS       "YourWiFiPassword"
-#define MIMI_SECRET_TG_TOKEN        "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-#define MIMI_SECRET_API_KEY         "sk-ant-api03-xxxxx"
-#define MIMI_SECRET_MODEL_PROVIDER  "anthropic"     // "anthropic" or "openai"
-#define MIMI_SECRET_SEARCH_KEY      ""              // optional: Brave Search API key
-#define MIMI_SECRET_PROXY_HOST      ""              // optional: e.g. "10.0.0.1"
-#define MIMI_SECRET_PROXY_PORT      ""              // optional: e.g. "7897"
-```
+## Configuration
 
-Then build and flash:
-
-```bash
-# Clean build (required after any mimi_secrets.h change)
-idf.py fullclean && idf.py build
-
-# Find your serial port
-ls /dev/cu.usb*          # macOS
-ls /dev/ttyACM*          # Linux
-
-# Flash and monitor (replace PORT with your port)
-# USB adapter: likely /dev/cu.usbmodem11401 (macOS) or /dev/ttyACM0 (Linux)
-idf.py -p PORT flash monitor
-```
-
-> **Important: Plug into the correct USB port!** Most ESP32-S3 boards have two USB-C ports. You must use the one labeled **USB** (native USB Serial/JTAG), **not** the one labeled **COM** (external UART bridge). Plugging into the wrong port will cause flash/monitor failures.
->
-> <details>
-> <summary>Show reference photo</summary>
->
-> <img src="assets/esp32s3-usb-port.jpg" alt="Plug into the USB port, not COM" width="480" />
->
-> </details>
-
-### CLI Commands
-
-Connect via serial to configure or debug. **Config commands** let you change settings without recompiling — just plug in a USB cable anywhere.
-
-**Runtime config** (saved to NVS, overrides build-time defaults):
+All settings are stored in NVS and survive firmware updates. Configure over USB serial:
 
 ```
-mimi> wifi_set MySSID MyPassword   # change WiFi network
-mimi> set_tg_token 123456:ABC...   # change Telegram bot token
-mimi> set_api_key sk-ant-api03-... # change API key (Anthropic or OpenAI)
-mimi> set_model_provider openai    # switch provider (anthropic|openai)
-mimi> set_model gpt-4o             # change LLM model
-mimi> set_proxy 127.0.0.1 7897  # set HTTP proxy
-mimi> clear_proxy                  # remove proxy
-mimi> set_search_key BSA...        # set Brave Search API key
-mimi> config_show                  # show all config (masked)
-mimi> config_reset                 # clear NVS, revert to build-time defaults
+# WiFi
+set_wifi <SSID> <password>
+
+# Telegram bot token (from @BotFather)
+set_tg_token <token>
+
+# LLM provider
+set_provider anthropic          # or: openrouter, openai
+set_api_key <your-api-key>
+set_model claude-opus-4-5
+
+# Optional: web search (Serper API key)
+set_search_key <key>
+
+# Show current config
+config_show
 ```
 
-**Debug & maintenance:**
+---
+
+## OpenRouter
+
+C6PO supports [OpenRouter](https://openrouter.ai) as a drop-in provider, giving access to 300+ models through a single API key.
 
 ```
-mimi> wifi_status              # am I connected?
-mimi> memory_read              # see what the bot remembers
-mimi> memory_write "content"   # write to MEMORY.md
-mimi> heap_info                # how much RAM is free?
-mimi> session_list             # list all chat sessions
-mimi> session_clear 12345      # wipe a conversation
-mimi> heartbeat_trigger           # manually trigger a heartbeat check
-mimi> cron_start                  # start cron scheduler now
-mimi> restart                     # reboot
+set_provider openrouter
+set_api_key sk-or-<your-key>
+set_model openrouter/auto            # auto-selects best model
+set_model anthropic/claude-sonnet-4-5
+set_model google/gemini-2.0-flash
 ```
 
-## Memory
+Get an API key at: https://openrouter.ai/settings/keys
 
-MimiClaw stores everything as plain text files you can read and edit:
+---
 
-| File | What it is |
-|------|------------|
-| `SOUL.md` | The bot's personality — edit this to change how it behaves |
-| `USER.md` | Info about you — name, preferences, language |
-| `MEMORY.md` | Long-term memory — things the bot should always remember |
-| `HEARTBEAT.md` | Task list the bot checks periodically and acts on autonomously |
-| `cron.json` | Scheduled jobs — recurring or one-shot tasks created by the AI |
-| `2026-02-05.md` | Daily notes — what happened today |
-| `tg_12345.jsonl` | Chat history — your conversation with the bot |
+## Skills
 
-## Tools
+Skills are Markdown files at `/spiffs/skills/<name>.md`. The agent reads them as part of its system prompt so it knows what capabilities are available and how to use them.
 
-MimiClaw supports tool calling for both Anthropic and OpenAI — the LLM can call tools during a conversation and loop until the task is done (ReAct pattern).
+Three built-in skills are installed on first boot: **weather**, **daily-briefing**, and **skill-creator**.
 
-| Tool | Description |
-|------|-------------|
-| `web_search` | Search the web via Brave Search API for current information |
-| `get_current_time` | Fetch current date/time via HTTP and set the system clock |
-| `cron_add` | Schedule a recurring or one-shot task (the LLM creates cron jobs on its own) |
-| `cron_list` | List all scheduled cron jobs |
-| `cron_remove` | Remove a cron job by ID |
+Create new skills from the **Skills tab** in the web console, or just ask the bot:
 
-To enable web search, set a [Brave Search API key](https://brave.com/search/api/) via `MIMI_SECRET_SEARCH_KEY` in `mimi_secrets.h`.
+> "Create a skill that translates text to French"
 
-## Cron Tasks
+Skills live in SPIFFS and survive firmware updates.
 
-MimiClaw has a built-in cron scheduler that lets the AI schedule its own tasks. The LLM can create recurring jobs ("every N seconds") or one-shot jobs ("at unix timestamp") via the `cron_add` tool. When a job fires, its message is injected into the agent loop — so the AI wakes up, processes the task, and responds.
+---
 
-Jobs are persisted to SPIFFS (`cron.json`) and survive reboots. Example use cases: daily summaries, periodic reminders, scheduled check-ins.
+## Partition Layout (4MB flash)
 
-## Heartbeat
+```
+nvs       0x9000   24KB   NVS config
+phy_init  0xf000    4KB   RF calibration
+factory  0x10000    2MB   Firmware
+spiffs  0x210000  1.9MB   Files (web console, config, skills, sessions)
+coredump 0x3f0000  64KB   Crash dumps
+```
 
-The heartbeat service periodically reads `HEARTBEAT.md` from SPIFFS and checks for actionable tasks. If uncompleted items are found (anything that isn't an empty line, a header, or a checked `- [x]` box), it sends a prompt to the agent loop so the AI can act on them autonomously.
+No OTA — firmware updates are via USB only.
 
-This turns MimiClaw into a proactive assistant — write tasks to `HEARTBEAT.md` and the bot will pick them up on the next heartbeat cycle (default: every 30 minutes).
+---
 
-## Also Included
+## Memory at a glance
 
-- **WebSocket gateway** on port 18789 — connect from your LAN with any WebSocket client
-- **OTA updates** — flash new firmware over WiFi, no USB needed
-- **Dual-core** — network I/O and AI processing run on separate CPU cores
-- **HTTP proxy** — CONNECT tunnel support for restricted networks
-- **Multi-provider** — supports both Anthropic (Claude) and OpenAI (GPT), switchable at runtime
-- **Cron scheduler** — the AI can schedule its own recurring and one-shot tasks, persisted across reboots
-- **Heartbeat** — periodically checks a task file and prompts the AI to act autonomously
-- **Tool use** — ReAct agent loop with tool calling for both providers
+| Resource | Value |
+|---|---|
+| Free heap at boot | ~369 KB |
+| SPIFFS | 1.9 MB |
+| Max session history | 15 messages |
+| LLM response buffer | 8 KB |
 
-## For Developers
+---
 
-Technical details live in the `docs/` folder:
+## Differences from MimiClaw (ESP32-S3)
 
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — system design, module map, task layout, memory budget, protocols, flash partitions
-- **[docs/TODO.md](docs/TODO.md)** — feature gap tracker and roadmap
+| | MimiClaw (S3) | C6PO (C6) |
+|---|---|---|
+| Flash | 16 MB | 4 MB |
+| PSRAM | 8 MB | None |
+| Cores | 2 | 1 |
+| OTA updates | Yes | No (USB only) |
+| IMU | Yes | Disabled |
+| LLM buffer | 32 KB | 8 KB |
+| Session history | 20 msgs | 15 msgs |
 
-## Contributing
-
-Please read **[docs/CONTRIBUTE.md](docs/CONTRIBUTE.md)** before opening issues or pull requests.
+---
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE)
 
-## Acknowledgments
-
-Inspired by [OpenClaw](https://github.com/openclaw/openclaw) and [Nanobot](https://github.com/HKUDS/nanobot). MimiClaw reimplements the core AI agent architecture for embedded hardware — no Linux, no server, just a $5 chip.
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=memovai/mimiclaw&type=Date)](https://star-history.com/#memovai/mimiclaw&Date)
+Based on [MimiClaw](https://github.com/memovai/mimiclaw) by memovai.
