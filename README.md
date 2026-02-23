@@ -54,6 +54,7 @@ Browse to `http://<device-ip>` after it connects to WiFi (the IP is printed in t
 | **USER.md** | Notes about you — the bot reads this on every turn |
 | **MEMORY.md** | Long-term memory written by the bot itself |
 | **Skills** | List, create, edit, and delete skill files |
+| **HEARTBEAT.md** | Recurring task list — the bot checks this on a timer and acts on uncompleted items |
 | **Settings** | Set LLM provider/model/API key and Brave Search key from the browser |
 
 The header shows live free heap, SPIFFS usage, and session token counts (with cost estimate if using OpenRouter), refreshed every 15 seconds.
