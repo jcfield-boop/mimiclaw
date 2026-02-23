@@ -140,7 +140,12 @@ idf.py -p /dev/ttyUSB0 flash
 
 This flashes firmware and SPIFFS (web console + default skill files) in one step.
 
-> **Note:** `idf.py flash` re-flashes the SPIFFS partition, resetting skill files, SOUL.md, USER.md, and MEMORY.md to defaults. NVS (API keys, WiFi credentials, Telegram token) is preserved across firmware updates.
+> **Tip:** To preserve user-edited files (SOUL.md, USER.md, HEARTBEAT.md, custom skills, MEMORY.md) when updating firmware, use `idf.py app-flash` instead — it flashes only the application binary and leaves the SPIFFS partition untouched:
+> ```bash
+> idf.py -p /dev/ttyUSB0 app-flash
+> ```
+>
+> **Note:** `idf.py flash` (full flash) re-initialises the entire SPIFFS partition. **SOUL.md, USER.md, and HEARTBEAT.md are re-created from defaults only if they are missing**, so they survive a full flash once they have been created. Custom skills and MEMORY.md are reset on full flash.
 
 ### Monitor boot
 
@@ -216,7 +221,7 @@ Create new skills from the **Skills tab** in the web console, or just ask the bo
 
 > "Create a skill that translates text to French"
 
-> **Note:** Skills are stored in SPIFFS and are reset when you run `idf.py flash`. Back up any custom skills before flashing.
+> **Note:** Skills are stored in SPIFFS. Custom skills are reset by `idf.py flash` (full flash). Use `idf.py app-flash` to update firmware without touching SPIFFS.
 
 ---
 

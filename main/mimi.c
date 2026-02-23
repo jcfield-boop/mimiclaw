@@ -84,6 +84,57 @@ static esp_err_t init_spiffs(void)
     return ESP_OK;
 }
 
+/* Write default content only if the file does not already exist.
+ * This preserves user edits across firmware updates. */
+static void write_if_missing(const char *path, const char *content)
+{
+    FILE *f = fopen(path, "r");
+    if (f) {
+        fclose(f);
+        return; /* already exists — keep user's version */
+    }
+    f = fopen(path, "w");
+    if (!f) {
+        ESP_LOGW(TAG, "Cannot create default: %s", path);
+        return;
+    }
+    fputs(content, f);
+    fclose(f);
+    ESP_LOGI(TAG, "Created default: %s", path);
+}
+
+/* Bootstrap personality and config files so they survive firmware updates.
+ * Only writes on first boot (or after a full SPIFFS erase). */
+static void bootstrap_defaults(void)
+{
+    write_if_missing(MIMI_SOUL_FILE,
+        "I am C6PO, a personal AI assistant running on an ESP32-C6 microcontroller.\n"
+        "\n"
+        "Personality:\n"
+        "- Helpful and friendly\n"
+        "- Concise and to the point\n"
+        "- Curious and eager to learn\n"
+        "\n"
+        "Values:\n"
+        "- Accuracy over speed\n"
+        "- User privacy and safety\n"
+        "- Transparency in actions\n");
+
+    write_if_missing(MIMI_USER_FILE,
+        "# User Profile\n"
+        "\n"
+        "- Name: (not set)\n"
+        "- Language: English\n"
+        "- Timezone: (not set)\n");
+
+    write_if_missing(MIMI_HEARTBEAT_FILE,
+        "# Heartbeat Tasks\n"
+        "\n"
+        "Add actionable tasks or reminders here.\n"
+        "The agent checks this file periodically and acts on any open items.\n"
+        "Remove completed items or mark them done: - [x] done\n");
+}
+
 /* Outbound dispatch task: reads from outbound queue and routes to channels */
 static void outbound_dispatch_task(void *arg)
 {
@@ -147,6 +198,7 @@ void app_main(void)
     ESP_ERROR_CHECK(init_nvs());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(init_spiffs());
+    bootstrap_defaults(); /* create config files if missing (preserves user edits) */
 
     /* Initialize subsystems */
     ESP_ERROR_CHECK(message_bus_init());
