@@ -241,7 +241,9 @@ static esp_err_t search_via_proxy(const char *path, search_buf_t *sb)
 esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t output_size)
 {
     if (s_search_key[0] == '\0') {
-        snprintf(output, output_size, "Error: No search API key configured. Set MIMI_SECRET_SEARCH_KEY in mimi_secrets.h");
+        snprintf(output, output_size,
+                 "Search not available: Brave Search API key not configured. "
+                 "Set it via Settings tab at http://<device-ip> or `set_search_key <key>` in CLI.");
         return ESP_ERR_INVALID_STATE;
     }
 

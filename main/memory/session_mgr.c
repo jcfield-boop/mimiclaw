@@ -125,6 +125,64 @@ esp_err_t session_get_history_json(const char *chat_id, char *buf, size_t size, 
     return ESP_OK;
 }
 
+cJSON *session_get_history_cjson(const char *chat_id, int max_msgs)
+{
+    char path[64];
+    session_path(chat_id, path, sizeof(path));
+
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return cJSON_CreateArray();
+    }
+
+    /* Read all lines into a ring buffer of cJSON objects */
+    cJSON *ring[MIMI_SESSION_MAX_MSGS];
+    int count = 0;
+    int write_idx = 0;
+
+    char line[2048];
+    while (fgets(line, sizeof(line), f)) {
+        size_t len = strlen(line);
+        if (len > 0 && line[len - 1] == '\n') line[len - 1] = '\0';
+        if (line[0] == '\0') continue;
+
+        cJSON *obj = cJSON_Parse(line);
+        if (!obj) continue;
+
+        if (count >= max_msgs) {
+            cJSON_Delete(ring[write_idx]);
+        }
+        ring[write_idx] = obj;
+        write_idx = (write_idx + 1) % max_msgs;
+        if (count < max_msgs) count++;
+    }
+    fclose(f);
+
+    /* Build result array with only role + content */
+    cJSON *arr = cJSON_CreateArray();
+    int start = (count < max_msgs) ? 0 : write_idx;
+    for (int i = 0; i < count; i++) {
+        int idx = (start + i) % max_msgs;
+        cJSON *src = ring[idx];
+        cJSON *role = cJSON_GetObjectItem(src, "role");
+        cJSON *content = cJSON_GetObjectItem(src, "content");
+        if (role && content) {
+            cJSON *entry = cJSON_CreateObject();
+            cJSON_AddStringToObject(entry, "role", role->valuestring);
+            cJSON_AddStringToObject(entry, "content", content->valuestring);
+            cJSON_AddItemToArray(arr, entry);
+        }
+    }
+
+    /* Cleanup ring buffer */
+    int cleanup_start = (count < max_msgs) ? 0 : write_idx;
+    for (int i = 0; i < count; i++) {
+        cJSON_Delete(ring[(cleanup_start + i) % max_msgs]);
+    }
+
+    return arr;
+}
+
 esp_err_t session_clear(const char *chat_id)
 {
     char path[64];

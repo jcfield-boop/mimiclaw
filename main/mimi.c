@@ -150,8 +150,14 @@ static void outbound_dispatch_task(void *arg)
             esp_err_t send_err = telegram_send_message(msg.chat_id, msg.content);
             if (send_err != ESP_OK) {
                 ESP_LOGE(TAG, "Telegram send failed for %s: %s", msg.chat_id, esp_err_to_name(send_err));
+                char err_mon[64];
+                snprintf(err_mon, sizeof(err_mon), "[tg->%s] dispatch failed", msg.chat_id);
+                ws_server_broadcast_monitor("error", err_mon);
             } else {
                 ESP_LOGI(TAG, "Telegram send success for %s (%d bytes)", msg.chat_id, (int)strlen(msg.content));
+                char ok_mon[64];
+                snprintf(ok_mon, sizeof(ok_mon), "[tg->%s] dispatched", msg.chat_id);
+                ws_server_broadcast_monitor("done", ok_mon);
             }
         } else if (strcmp(msg.channel, MIMI_CHAN_WEBSOCKET) == 0) {
             esp_err_t ws_err = ws_server_send(msg.chat_id, msg.content);

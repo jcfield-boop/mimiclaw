@@ -80,7 +80,7 @@ idf.py -p /dev/ttyUSB0 flash
 
 Replace `/dev/ttyUSB0` with your actual serial port (`/dev/cu.usbmodem*` on macOS).
 
-### 3. Configure over serial
+### 3. Configure over serial (first-time only)
 
 Connect at 115200 baud (e.g. `screen /dev/ttyUSB0 115200`) and run:
 
@@ -95,15 +95,25 @@ restart
 
 Get an OpenRouter key at [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) — it gives access to 300+ models. Anthropic and OpenAI keys also work; see the [OpenRouter](#openrouter) section below.
 
-### 4. Verify boot
+> **Note:** After first boot, all settings (API keys, provider, model, search key) can be changed from the web console **Settings** tab — no USB connection needed.
 
-After restart, the serial log will print the device IP address once WiFi connects:
+### 4. Find the device IP and open the Live Log
+
+Check your router's DHCP table for the device IP, or read it from the serial log once:
 
 ```
 I (1234) wifi: connected, IP: 192.168.x.x
 ```
 
 Open `http://<device-ip>` in a browser to access the web console.
+
+### 4a. Live Log — primary diagnostic
+
+The **Live Log** tab is your main window into what the device is doing:
+
+- Shows WiFi events, incoming Telegram messages, tool calls, LLM token counts, and errors
+- Updates in real time from any browser on the same network — **no USB connection needed**
+- Use this for all ongoing diagnostics once the device is running headless
 
 ### 5. Personalise and enable web search
 
@@ -147,18 +157,20 @@ This flashes firmware and SPIFFS (web console + default skill files) in one step
 >
 > **Note:** `idf.py flash` (full flash) re-initialises the entire SPIFFS partition. **SOUL.md, USER.md, and HEARTBEAT.md are re-created from defaults only if they are missing**, so they survive a full flash once they have been created. Custom skills and MEMORY.md are reset on full flash.
 
-### Monitor boot
+### Monitor boot (optional)
 
 ```bash
 # idf.py monitor requires an interactive TTY; use screen instead:
 screen /dev/ttyUSB0 115200
 ```
 
+The device IP is printed once on boot. After that, use the **Live Log** tab in the web console for all diagnostics — no USB connection needed.
+
 ---
 
 ## Configuration
 
-All settings are stored in NVS and survive firmware updates. Configure over USB serial:
+All settings are stored in NVS and survive firmware updates. Configure via the web console **Settings** tab (no USB required), or over USB serial:
 
 ```
 # WiFi
@@ -239,7 +251,9 @@ C6PO automatically manages its storage to stay within the 1.9 MB SPIFFS limit:
 
 ---
 
-## Serial CLI Reference
+## Serial CLI Reference (development / optional)
+
+The serial CLI is useful for first-time setup and development. All settings can also be configured from the web console **Settings** tab once WiFi is connected.
 
 Connect at 115200 baud and type `help` for the full command list. Key commands:
 

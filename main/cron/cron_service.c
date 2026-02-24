@@ -1,6 +1,7 @@
 #include "cron/cron_service.h"
 #include "mimi_config.h"
 #include "bus/message_bus.h"
+#include "gateway/ws_server.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -253,6 +254,10 @@ static void cron_process_due_jobs(void)
         /* Job is due — fire it */
         ESP_LOGI(TAG, "Cron job firing: %s (%s)", job->name, job->id);
 
+        char mon_msg[64];
+        snprintf(mon_msg, sizeof(mon_msg), "[cron] %s: %.40s", job->id, job->message);
+        ws_server_broadcast_monitor("task", mon_msg);
+
         /* Push message to inbound queue */
         mimi_msg_t msg;
         memset(&msg, 0, sizeof(msg));
@@ -409,6 +414,10 @@ esp_err_t cron_add_job(cron_job_t *job)
              job->name, job->id,
              job->kind == CRON_KIND_EVERY ? "every" : "at",
              (long long)job->next_run);
+
+    char mon_msg[32];
+    snprintf(mon_msg, sizeof(mon_msg), "[cron] added job %s", job->id);
+    ws_server_broadcast_monitor("ws", mon_msg);
     return ESP_OK;
 }
 
@@ -425,6 +434,10 @@ esp_err_t cron_remove_job(const char *job_id)
             s_job_count--;
 
             cron_save_jobs();
+
+            char mon_msg[32];
+            snprintf(mon_msg, sizeof(mon_msg), "[cron] removed job %s", job_id);
+            ws_server_broadcast_monitor("ws", mon_msg);
             return ESP_OK;
         }
     }

@@ -62,11 +62,12 @@ else
   git -C "$IDF_DIR" submodule update --init --recursive
 fi
 
-"$IDF_DIR/install.sh" esp32s3
+"$IDF_DIR/install.sh" esp32s3,esp32c6
 
 echo
 echo "ESP-IDF installed. For current shell run:"
 echo "  . \"$IDF_DIR/export.sh\""
-echo "Then run from project root:"
-echo "  idf.py set-target esp32s3"
-echo "  idf.py build"
+echo "Then run from project root (ESP32-C6 default):"
+echo "  bash scripts/build_macos.sh"
+echo "Or for ESP32-S3:"
+echo "  TARGET=esp32s3 bash scripts/build_macos.sh"

@@ -1,6 +1,7 @@
 #include "heartbeat/heartbeat.h"
 #include "mimi_config.h"
 #include "bus/message_bus.h"
+#include "gateway/ws_server.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -99,6 +100,7 @@ static bool heartbeat_send(void)
     }
 
     ESP_LOGI(TAG, "Triggered agent check");
+    ws_server_broadcast_monitor("task", "[heartbeat] triggered");
     return true;
 }
 

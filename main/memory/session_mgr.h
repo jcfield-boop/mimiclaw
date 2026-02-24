@@ -2,6 +2,7 @@
 
 #include "esp_err.h"
 #include <stddef.h>
+#include "cJSON.h"
 
 /**
  * Initialize session manager.
@@ -27,6 +28,16 @@ esp_err_t session_append(const char *chat_id, const char *role, const char *cont
  * @param max_msgs  Maximum number of messages to return
  */
 esp_err_t session_get_history_json(const char *chat_id, char *buf, size_t size, int max_msgs);
+
+/**
+ * Load session history as a cJSON array for direct use with LLM messages.
+ * Returns the last max_msgs messages. Caller owns the result and must cJSON_Delete it.
+ * Returns an empty array (never NULL) if no history exists.
+ *
+ * @param chat_id   Session identifier
+ * @param max_msgs  Maximum number of messages to return
+ */
+cJSON *session_get_history_cjson(const char *chat_id, int max_msgs);
 
 /**
  * Clear a session (delete the file).
