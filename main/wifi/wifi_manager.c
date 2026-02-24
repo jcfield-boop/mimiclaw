@@ -1,5 +1,6 @@
 #include "wifi_manager.h"
 #include "mimi_config.h"
+#include "gateway/ws_server.h"
 
 #include <string.h>
 #include <inttypes.h>
@@ -44,6 +45,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         if (disc) {
             ESP_LOGW(TAG, "Disconnected (reason=%d:%s)", disc->reason, wifi_reason_to_str(disc->reason));
         }
+        ws_server_broadcast_monitor("error", "WiFi disconnected");
         if (s_retry_count < MIMI_WIFI_MAX_RETRY) {
             /* Exponential backoff: 1s, 2s, 4s, 8s, ... capped at 30s */
             uint32_t delay_ms = MIMI_WIFI_RETRY_BASE_MS << s_retry_count;
@@ -52,6 +54,10 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             }
             ESP_LOGW(TAG, "Disconnected, retry %d/%d in %" PRIu32 "ms",
                      s_retry_count + 1, MIMI_WIFI_MAX_RETRY, delay_ms);
+            char retry_msg[32];
+            snprintf(retry_msg, sizeof(retry_msg), "WiFi retry %d/%d",
+                     s_retry_count + 1, MIMI_WIFI_MAX_RETRY);
+            ws_server_broadcast_monitor("ws", retry_msg);
             vTaskDelay(pdMS_TO_TICKS(delay_ms));
             esp_wifi_connect();
             s_retry_count++;
@@ -65,6 +71,14 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "Connected! IP: %s", s_ip_str);
         s_retry_count = 0;
         s_connected = true;
+
+        char conn_msg[48];
+        snprintf(conn_msg, sizeof(conn_msg), "WiFi connected: %s", s_ip_str);
+        ws_server_broadcast_monitor("ws", conn_msg);
+
+        char vmsg[64];
+        snprintf(vmsg, sizeof(vmsg), "WiFi IP: " IPSTR, IP2STR(&event->ip_info.ip));
+        ws_server_broadcast_monitor_verbose("wifi", vmsg);
 
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
     }

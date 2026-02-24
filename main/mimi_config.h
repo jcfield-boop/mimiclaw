@@ -52,8 +52,8 @@
 /* Agent Loop */
 #define MIMI_AGENT_STACK             (16 * 1024)  /* Reduced from 24KB for ESP32-C6 */
 #define MIMI_AGENT_PRIO              6
-#define MIMI_AGENT_CORE              1
-#define MIMI_AGENT_MAX_HISTORY       20
+#define MIMI_AGENT_CORE              0
+#define MIMI_AGENT_MAX_HISTORY       15  /* Must match MIMI_SESSION_MAX_MSGS to avoid ring buffer OOB */
 #define MIMI_AGENT_MAX_TOOL_ITER     10
 #define MIMI_MAX_TOOL_CALLS          4
 #define MIMI_AGENT_SEND_WORKING_STATUS 1
@@ -64,7 +64,7 @@
 /* LLM */
 #define MIMI_LLM_DEFAULT_MODEL       "claude-opus-4-5"
 #define MIMI_LLM_PROVIDER_DEFAULT    "anthropic"
-#define MIMI_LLM_MAX_TOKENS          1500 /* ~6KB JSON max — fits safely in 16KB buffer */
+#define MIMI_LLM_MAX_TOKENS          1000 /* Reduced: limits JSON to ~17KB, cuts cJSON peak ~8KB */
 #define MIMI_LLM_API_URL             "https://api.anthropic.com/v1/messages"
 #define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
 #define MIMI_OPENROUTER_API_URL      "https://openrouter.ai/api/v1/chat/completions"

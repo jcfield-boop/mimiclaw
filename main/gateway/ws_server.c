@@ -15,9 +15,14 @@
 #include "esp_system.h"
 #include "esp_heap_caps.h"
 #include "esp_spiffs.h"
+#include "nvs.h"
 #include "cJSON.h"
 
 static const char *TAG = "ws";
+
+#define WS_NVS_NAMESPACE "ws_config"
+#define WS_NVS_KEY_VERBOSE "verbose_logs"
+static bool s_verbose_logs = false;
 
 static httpd_handle_t s_server = NULL;
 
@@ -494,6 +499,7 @@ static esp_err_t config_get_handler(httpd_req_t *req)
     cJSON_AddStringToObject(j, "model",      llm_get_model());
     cJSON_AddStringToObject(j, "api_key",    masked_api);
     cJSON_AddStringToObject(j, "search_key", masked_search);
+    cJSON_AddBoolToObject(j, "verbose_logs", s_verbose_logs);
 
     char *json_str = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);
@@ -553,6 +559,18 @@ static esp_err_t config_post_handler(httpd_req_t *req)
         tool_web_search_set_key(search_key->valuestring);
     }
 
+    cJSON *verbose = cJSON_GetObjectItem(root, "verbose_logs");
+    if (verbose && cJSON_IsBool(verbose)) {
+        s_verbose_logs = cJSON_IsTrue(verbose);
+        nvs_handle_t nvs;
+        if (nvs_open(WS_NVS_NAMESPACE, NVS_READWRITE, &nvs) == ESP_OK) {
+            nvs_set_u8(nvs, WS_NVS_KEY_VERBOSE, s_verbose_logs ? 1 : 0);
+            nvs_commit(nvs);
+            nvs_close(nvs);
+        }
+        ESP_LOGI(TAG, "Verbose logs set to: %s", s_verbose_logs ? "on" : "off");
+    }
+
     cJSON_Delete(root);
 
     ESP_LOGI(TAG, "Config updated via web");
@@ -567,6 +585,16 @@ static esp_err_t config_post_handler(httpd_req_t *req)
 esp_err_t ws_server_start(void)
 {
     memset(s_clients, 0, sizeof(s_clients));
+
+    {
+        nvs_handle_t nvs;
+        if (nvs_open(WS_NVS_NAMESPACE, NVS_READONLY, &nvs) == ESP_OK) {
+            uint8_t v = 0;
+            if (nvs_get_u8(nvs, WS_NVS_KEY_VERBOSE, &v) == ESP_OK) s_verbose_logs = (v != 0);
+            nvs_close(nvs);
+        }
+        ESP_LOGI(TAG, "Verbose logs: %s", s_verbose_logs ? "on" : "off");
+    }
 
     httpd_config_t config    = HTTPD_DEFAULT_CONFIG();
     config.server_port       = MIMI_WS_PORT;
@@ -748,6 +776,14 @@ esp_err_t ws_server_broadcast_monitor(const char *event, const char *msg_text)
 
     free(json_str);
     return ESP_OK;
+}
+
+bool ws_server_get_verbose_logs(void) { return s_verbose_logs; }
+
+esp_err_t ws_server_broadcast_monitor_verbose(const char *event, const char *msg)
+{
+    if (!s_verbose_logs) return ESP_OK;
+    return ws_server_broadcast_monitor(event, msg);
 }
 
 esp_err_t ws_server_stop(void)

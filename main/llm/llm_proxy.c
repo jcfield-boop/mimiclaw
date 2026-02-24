@@ -107,8 +107,13 @@ static esp_err_t resp_buf_append(resp_buf_t *rb, const char *data, size_t len)
 {
     while (rb->len + len >= rb->cap) {
         size_t new_cap = rb->cap * 2;
-        char *tmp = heap_caps_realloc(rb->data, new_cap, MALLOC_CAP_SPIRAM);
-        if (!tmp) return ESP_ERR_NO_MEM;
+        char *tmp = realloc(rb->data, new_cap);  /* Use internal SRAM — no PSRAM on ESP32-C6 */
+        if (!tmp) {
+            char emsg[80];
+            snprintf(emsg, sizeof(emsg), "LLM: resp buf OOM at cap %u bytes", (unsigned)rb->cap);
+            ws_server_broadcast_monitor_verbose("error", emsg);
+            return ESP_ERR_NO_MEM;
+        }
         rb->data = tmp;
         rb->cap = new_cap;
     }
@@ -611,6 +616,11 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     }
 
     llm_log_payload("LLM tools raw response", rb.data);
+    {
+        char szlog[64];
+        snprintf(szlog, sizeof(szlog), "LLM raw resp: %d bytes", (int)rb.len);
+        ws_server_broadcast_monitor("llm", szlog);
+    }
 
     if (status != 200) {
         /* Broadcast the first ~120 chars of the error body (strip control chars) */
@@ -729,19 +739,34 @@ esp_err_t llm_chat_tools(const char *system_prompt,
 
             /* Allocate and copy text */
             if (total_text > 0) {
-                resp->text = calloc(1, total_text + 1);
-                if (resp->text) {
-                    cJSON_ArrayForEach(block, content) {
-                        cJSON *btype = cJSON_GetObjectItem(block, "type");
-                        if (!btype || strcmp(btype->valuestring, "text") != 0) continue;
-                        cJSON *text = cJSON_GetObjectItem(block, "text");
-                        if (!text || !cJSON_IsString(text)) continue;
-                        size_t tlen = strlen(text->valuestring);
-                        memcpy(resp->text + resp->text_len, text->valuestring, tlen);
-                        resp->text_len += tlen;
-                    }
-                    resp->text[resp->text_len] = '\0';
+                {
+                    char vmsg[80];
+                    snprintf(vmsg, sizeof(vmsg), "LLM text alloc: %u bytes (heap: %u free)",
+                             (unsigned)total_text,
+                             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+                    ws_server_broadcast_monitor_verbose("llm", vmsg);
                 }
+                resp->text = calloc(1, total_text + 1);
+                if (!resp->text) {
+                    char emsg[96];
+                    snprintf(emsg, sizeof(emsg), "LLM: OOM for text (%u bytes, heap %u free)",
+                             (unsigned)total_text,
+                             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+                    ESP_LOGE(TAG, "%s", emsg);
+                    ws_server_broadcast_monitor("error", emsg);
+                    cJSON_Delete(root);
+                    return ESP_ERR_NO_MEM;
+                }
+                cJSON_ArrayForEach(block, content) {
+                    cJSON *btype = cJSON_GetObjectItem(block, "type");
+                    if (!btype || strcmp(btype->valuestring, "text") != 0) continue;
+                    cJSON *text = cJSON_GetObjectItem(block, "text");
+                    if (!text || !cJSON_IsString(text)) continue;
+                    size_t tlen = strlen(text->valuestring);
+                    memcpy(resp->text + resp->text_len, text->valuestring, tlen);
+                    resp->text_len += tlen;
+                }
+                resp->text[resp->text_len] = '\0';
             }
 
             /* Extract tool_use blocks */

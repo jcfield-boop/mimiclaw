@@ -2,6 +2,7 @@
 #include "mimi_config.h"
 #include "bus/message_bus.h"
 #include "proxy/http_proxy.h"
+#include "gateway/ws_server.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -356,6 +357,14 @@ static void process_updates(const char *json_str)
         ESP_LOGI(TAG, "Message update_id=%" PRId64 " message_id=%d from chat %s: %.40s...",
                  uid, msg_id_val, chat_id_str, text->valuestring);
 
+        char mon_msg[80];
+        snprintf(mon_msg, sizeof(mon_msg), "[tg] %s: %.40s", chat_id_str, text->valuestring);
+        ws_server_broadcast_monitor("task", mon_msg);
+
+        char vpreview[240];
+        snprintf(vpreview, sizeof(vpreview), "[%s] %.200s", chat_id_str, text->valuestring);
+        ws_server_broadcast_monitor_verbose("telegram", vpreview);
+
         /* Push to inbound bus */
         mimi_msg_t msg = {0};
         strncpy(msg.channel, MIMI_CHAN_TELEGRAM, sizeof(msg.channel) - 1);
@@ -535,11 +544,17 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text)
 
         if (!sent_ok) {
             all_ok = 0;
+            char err_msg[64];
+            snprintf(err_msg, sizeof(err_msg), "[tg->%s] send failed", chat_id);
+            ws_server_broadcast_monitor("error", err_msg);
         } else {
             if (markdown_failed) {
                 ESP_LOGI(TAG, "Plain-text fallback succeeded for %s", chat_id);
             }
             ESP_LOGI(TAG, "Telegram send success to %s (%d bytes)", chat_id, (int)chunk);
+            char ok_msg[64];
+            snprintf(ok_msg, sizeof(ok_msg), "[tg->%s] sent", chat_id);
+            ws_server_broadcast_monitor("done", ok_msg);
         }
 
         free(resp);

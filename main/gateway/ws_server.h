@@ -31,6 +31,12 @@ esp_err_t ws_server_send(const char *chat_id, const char *text);
  */
 esp_err_t ws_server_broadcast_monitor(const char *event, const char *msg);
 
+/** Broadcast verbose-only monitor event; no-op when verbose logs disabled. */
+esp_err_t ws_server_broadcast_monitor_verbose(const char *event, const char *msg);
+
+/** Returns true if verbose logging is enabled. */
+bool ws_server_get_verbose_logs(void);
+
 /**
  * Stop the WebSocket/HTTP server.
  */

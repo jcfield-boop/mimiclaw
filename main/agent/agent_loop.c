@@ -228,6 +228,15 @@ static void agent_loop_task(void *arg)
         cJSON *messages = cJSON_Parse(history_json);
         if (!messages) messages = cJSON_CreateArray();
 
+        {
+            char vmsg[80];
+            snprintf(vmsg, sizeof(vmsg), "agent ctx: %d msgs, prompt %d bytes, heap %u free",
+                     cJSON_GetArraySize(messages),
+                     (int)strnlen(system_prompt, MIMI_CONTEXT_BUF_SIZE),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+            ws_server_broadcast_monitor_verbose("task", vmsg);
+        }
+
         /* 3. Append current user message */
         cJSON *user_msg = cJSON_CreateObject();
         cJSON_AddStringToObject(user_msg, "role", "user");
