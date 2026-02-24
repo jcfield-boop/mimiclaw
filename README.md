@@ -33,12 +33,14 @@ Tested on: ESP32-C6FH4 (revision v0.2).
 
 - **Telegram bot** — send messages, get AI replies, full conversation history per chat
 - **Web console** on port 80 — live activity log, file editors, skills manager, memory monitor
+- **Chat input** in Live Log — send messages directly from the browser without leaving the log view
 - **LLM providers** — Anthropic (Claude), OpenRouter (300+ models), or any OpenAI-compatible endpoint
-- **Tool use** — web search (Brave Search API), read/write/edit SPIFFS files, cron scheduling
+- **Tool use** — web search (Brave Search API with Answers/Summarizer), read/write/edit SPIFFS files, cron scheduling
 - **Skills system** — teach the bot new capabilities via Markdown files; create/edit/delete from the browser
 - **Session memory** — per-chat conversation history stored in SPIFFS
 - **Long-term memory** — persistent MEMORY.md updated by the agent over time
 - **Cron / heartbeat** — schedule recurring tasks and daily briefings
+- **Verbose Logs** — toggle extra diagnostics (WiFi IP, full Telegram text, LLM heap/size) in Settings; persisted in NVS
 - **Serial CLI** — configure everything over USB without reflashing
 
 ---
@@ -49,13 +51,13 @@ Browse to `http://<device-ip>` after it connects to WiFi (the IP is printed in t
 
 | Tab | Description |
 |---|---|
-| **Live Log** | Real-time stream of LLM calls, tool results, errors, and responses. Shows token counts per call and full error bodies from the API. Capped at 250 entries; use the ✕ button to clear. |
+| **Live Log** | Real-time stream of LLM calls, tool results, errors, and responses. Shows token counts per call and full error bodies from the API. Capped at 250 entries; use the ✕ button to clear. **Chat input bar** at the bottom lets you send messages directly from the browser. |
 | **SOUL.md** | The bot's personality and values |
 | **USER.md** | Notes about you — the bot reads this on every turn |
 | **MEMORY.md** | Long-term memory written by the bot itself (auto-trimmed to 3 KB) |
 | **Skills** | List, create, edit, and delete skill files |
 | **HEARTBEAT.md** | Recurring task list — the bot checks this on a timer and acts on uncompleted items |
-| **Settings** | Set LLM provider/model/API key and Brave Search key from the browser |
+| **Settings** | Set LLM provider/model/API key, Brave Search key, and **Verbose Logs** toggle from the browser |
 
 The header shows live free heap, SPIFFS usage, and session token counts (with cost estimate if using OpenRouter), refreshed every 15 seconds.
 
@@ -113,7 +115,10 @@ The **Live Log** tab is your main window into what the device is doing:
 
 - Shows WiFi events, incoming Telegram messages, tool calls, LLM token counts, and errors
 - Updates in real time from any browser on the same network — **no USB connection needed**
+- **Chat input bar** at the bottom — type a message and press Enter (or ➤) to send it to the bot directly from the browser, without leaving the log view
 - Use this for all ongoing diagnostics once the device is running headless
+
+Enable **Verbose Logs** in the Settings tab to unlock extra detail: full WiFi IP on connect, complete incoming Telegram message text, LLM request/response sizes, and heap state before each allocation. Verbose mode is off by default (to keep the log readable) and persisted in NVS.
 
 ### 5. Personalise and enable web search
 
@@ -213,13 +218,15 @@ You can also set this from the browser: open the web console **Settings** tab.
 
 ## Web Search
 
-Web search uses the [Brave Search API](https://brave.com/search/api/) (free tier: 2,000 queries/month).
+Web search uses the [Brave Search API](https://brave.com/search/api/).
 
 ```
 set_search_key <your-brave-search-key>
 ```
 
 Or set it from the browser in the web console **Settings** tab. The key is stored in NVS and survives firmware updates. If the key is not set, the `web_search` tool will be unavailable and the agent will say so.
+
+**Brave Answers / Summarizer plan:** If your API key has access to the Brave Answers plan, C6PO automatically uses the two-step summarizer flow — first fetching web results with `summary=1`, then calling `/res/v1/summarizer/search` to get an AI-generated answer. If no summarizer key is returned (free-tier keys), it falls back to formatting the top web results directly. The Answers plan costs $4.00 per 1,000 queries (vs $3.00 for raw results); usage is tracked in the web console header.
 
 ---
 

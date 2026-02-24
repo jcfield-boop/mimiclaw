@@ -21,8 +21,12 @@ static char s_search_key[128] = {0};
 static uint32_t s_total_searches        = 0;
 static uint32_t s_search_cost_millicents = 0;
 
-#define SEARCH_BUF_SIZE     (16 * 1024)
-#define SEARCH_RESULT_COUNT 5
+#define SEARCH_BUF_SIZE      (20 * 1024)  /* Web search with summary=1 ~12-15KB */
+#define SUMMARIZER_BUF_SIZE  (12 * 1024)  /* Summarizer response ~3-8KB */
+#define SUMMARIZER_KEY_MAX   256
+#define SEARCH_RESULT_COUNT  5
+/* Brave Answers plan: $4.00/1000 queries = 400 millicents (web + summarizer = 2 calls) */
+#define BRAVE_ANSWERS_COST_MILLICENTS 400
 
 /* ── Response accumulator ─────────────────────────────────────── */
 
@@ -37,7 +41,7 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
     search_buf_t *sb = (search_buf_t *)evt->user_data;
     if (evt->event_id == HTTP_EVENT_ON_DATA) {
         size_t needed = sb->len + evt->data_len;
-        if (needed < sb->cap) {
+        if (needed < sb->cap - 1) {  /* -1 to always reserve space for null terminator */
             memcpy(sb->data + sb->len, evt->data, evt->data_len);
             sb->len += evt->data_len;
             sb->data[sb->len] = '\0';
@@ -106,42 +110,56 @@ static size_t url_encode(const char *src, char *dst, size_t dst_size)
     return pos;
 }
 
-/* ── Format results as readable text ──────────────────────────── */
+/* ── Format web results (fallback when no summary) ────────────── */
 
 static void format_results(cJSON *root, char *output, size_t output_size)
 {
     cJSON *web = cJSON_GetObjectItem(root, "web");
-    if (!web) {
-        snprintf(output, output_size, "No web results found.");
-        return;
-    }
-
-    cJSON *results = cJSON_GetObjectItem(web, "results");
+    cJSON *results = web ? cJSON_GetObjectItem(web, "results") : NULL;
     if (!results || !cJSON_IsArray(results) || cJSON_GetArraySize(results) == 0) {
         snprintf(output, output_size, "No web results found.");
         return;
     }
-
     size_t off = 0;
     int idx = 0;
     cJSON *item;
     cJSON_ArrayForEach(item, results) {
         if (idx >= SEARCH_RESULT_COUNT) break;
-
         cJSON *title = cJSON_GetObjectItem(item, "title");
-        cJSON *url = cJSON_GetObjectItem(item, "url");
-        cJSON *desc = cJSON_GetObjectItem(item, "description");
-
-        off += snprintf(output + off, output_size - off,
-            "%d. %s\n   %s\n   %s\n\n",
+        cJSON *url   = cJSON_GetObjectItem(item, "url");
+        cJSON *desc  = cJSON_GetObjectItem(item, "description");
+        off += snprintf(output + off, output_size - off, "%d. %s\n   %s\n   %s\n\n",
             idx + 1,
             (title && cJSON_IsString(title)) ? title->valuestring : "(no title)",
-            (url && cJSON_IsString(url)) ? url->valuestring : "",
-            (desc && cJSON_IsString(desc)) ? desc->valuestring : "");
-
+            (url   && cJSON_IsString(url))   ? url->valuestring   : "",
+            (desc  && cJSON_IsString(desc))  ? desc->valuestring  : "");
         if (off >= output_size - 1) break;
         idx++;
     }
+}
+
+/* ── Format Brave Summarizer response ─────────────────────────── */
+
+static void format_summary(cJSON *root, char *output, size_t output_size)
+{
+    cJSON *summary_arr = cJSON_GetObjectItem(root, "summary");
+    if (!summary_arr || !cJSON_IsArray(summary_arr) || cJSON_GetArraySize(summary_arr) == 0) {
+        snprintf(output, output_size, "No summary available.");
+        return;
+    }
+    size_t off = 0;
+    cJSON *token;
+    cJSON_ArrayForEach(token, summary_arr) {
+        cJSON *text = cJSON_GetObjectItem(token, "text");
+        if (text && cJSON_IsString(text)) {
+            size_t tlen = strlen(text->valuestring);
+            size_t space = output_size - 1 - off;
+            if (tlen > space) tlen = space;
+            memcpy(output + off, text->valuestring, tlen);
+            off += tlen;
+        }
+    }
+    output[off] = '\0';
 }
 
 /* ── Direct HTTPS request ─────────────────────────────────────── */
@@ -236,6 +254,46 @@ static esp_err_t search_via_proxy(const char *path, search_buf_t *sb)
     return ESP_OK;
 }
 
+/* ── Fetch Brave Summarizer (step 2) ──────────────────────────── */
+
+static esp_err_t get_summary(const char *key, char *output, size_t output_size)
+{
+    char encoded_key[384];
+    url_encode(key, encoded_key, sizeof(encoded_key));
+
+    char path[512];
+    snprintf(path, sizeof(path), "/res/v1/summarizer/search?key=%s&entity_info=1", encoded_key);
+
+    search_buf_t sb = {0};
+    sb.data = calloc(1, SUMMARIZER_BUF_SIZE);
+    if (!sb.data) return ESP_ERR_NO_MEM;
+    sb.cap = SUMMARIZER_BUF_SIZE;
+
+    esp_err_t err;
+    if (http_proxy_is_enabled()) {
+        err = search_via_proxy(path, &sb);
+    } else {
+        char url[560];
+        snprintf(url, sizeof(url), "https://api.search.brave.com%s", path);
+        err = search_direct(url, &sb);
+    }
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Summarizer HTTP failed: %s", esp_err_to_name(err));
+        free(sb.data);
+        return err;
+    }
+
+    ESP_LOGI(TAG, "Summarizer resp: %d bytes", (int)sb.len);
+    cJSON *root = cJSON_Parse(sb.data);
+    free(sb.data);
+    if (!root) return ESP_FAIL;
+
+    format_summary(root, output, output_size);
+    cJSON_Delete(root);
+    return (output[0] != '\0') ? ESP_OK : ESP_FAIL;
+}
+
 /* ── Execute ──────────────────────────────────────────────────── */
 
 esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t output_size)
@@ -268,9 +326,11 @@ esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t o
     url_encode(query->valuestring, encoded_query, sizeof(encoded_query));
     cJSON_Delete(input);
 
+    /* Step 1: web search with summary=1 to get summarizer key */
     char path[384];
     snprintf(path, sizeof(path),
-             "/res/v1/web/search?q=%s&count=%d", encoded_query, SEARCH_RESULT_COUNT);
+             "/res/v1/web/search?q=%s&count=%d&result_filter=web&extra_snippets=false&summary=1",
+             encoded_query, SEARCH_RESULT_COUNT);
 
     /* Allocate response buffer from internal SRAM (ESP32-C6 has no PSRAM) */
     search_buf_t sb = {0};
@@ -298,20 +358,53 @@ esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t o
     }
 
     /* Parse and format results */
+    int resp_len = (int)sb.len;
+    char dbg_prefix[80];
+    snprintf(dbg_prefix, sizeof(dbg_prefix), "%.70s", sb.data ? sb.data : "");
     cJSON *root = cJSON_Parse(sb.data);
     free(sb.data);
 
     if (!root) {
-        snprintf(output, output_size, "Error: Failed to parse search results");
+        ESP_LOGE(TAG, "JSON parse failed: %d bytes received, starts: %s", resp_len, dbg_prefix);
+        snprintf(output, output_size, "Error: Failed to parse search results (%d bytes)", resp_len);
         return ESP_FAIL;
     }
 
-    format_results(root, output, output_size);
-    cJSON_Delete(root);
+    /* Step 2: extract summarizer key and fetch summary */
+    char summarizer_key[SUMMARIZER_KEY_MAX] = {0};
+    cJSON *summarizer = cJSON_GetObjectItem(root, "summarizer");
+    if (summarizer) {
+        cJSON *sk = cJSON_GetObjectItem(summarizer, "key");
+        if (sk && cJSON_IsString(sk)) {
+            strncpy(summarizer_key, sk->valuestring, sizeof(summarizer_key) - 1);
+        }
+    }
+
+    bool used_summary = false;
+    if (summarizer_key[0]) {
+        /* Free web search tree before allocating summarizer buffer */
+        cJSON_Delete(root);
+        ESP_LOGI(TAG, "Fetching Brave summary...");
+        esp_err_t sum_err = get_summary(summarizer_key, output, output_size);
+        if (sum_err == ESP_OK && output[0]) {
+            used_summary = true;
+        } else {
+            ESP_LOGW(TAG, "Summarizer failed (%s)", esp_err_to_name(sum_err));
+            snprintf(output, output_size, "Search summary unavailable, please try again.");
+        }
+    } else {
+        /* No summarizer key — fall back to formatted web results */
+        ESP_LOGW(TAG, "No summarizer key in response (query may not be eligible)");
+        format_results(root, output, output_size);
+        cJSON_Delete(root);
+    }
 
     s_total_searches++;
-    s_search_cost_millicents += BRAVE_COST_PER_CALL_MILLICENTS;
-    ESP_LOGI(TAG, "Search complete, %d bytes result (total calls: %u)", (int)strlen(output), (unsigned)s_total_searches);
+    s_search_cost_millicents += used_summary
+        ? BRAVE_ANSWERS_COST_MILLICENTS   /* counts as one "answer" query */
+        : BRAVE_COST_PER_CALL_MILLICENTS;
+    ESP_LOGI(TAG, "Search done (%s), %d bytes (calls: %u)",
+             used_summary ? "summary" : "web", (int)strlen(output), (unsigned)s_total_searches);
     return ESP_OK;
 }
 

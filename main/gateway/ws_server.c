@@ -97,8 +97,17 @@ static esp_err_t ws_handler(httpd_req_t *req)
     ws_pkt.type = HTTPD_WS_TYPE_TEXT;
 
     esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
-    if (ret != ESP_OK) return ret;
-    if (ws_pkt.len == 0) return ESP_OK;
+    if (ret != ESP_OK) {
+        /* Connection closed or error — free the slot immediately */
+        remove_client(httpd_req_to_sockfd(req));
+        return ret;
+    }
+    if (ws_pkt.len == 0) {
+        if (ws_pkt.type == HTTPD_WS_TYPE_CLOSE) {
+            remove_client(httpd_req_to_sockfd(req));
+        }
+        return ESP_OK;
+    }
 
     ws_pkt.payload = calloc(1, ws_pkt.len + 1);
     if (!ws_pkt.payload) return ESP_ERR_NO_MEM;
@@ -611,10 +620,11 @@ esp_err_t ws_server_start(void)
 
     /* WebSocket on /ws (moved from /) */
     httpd_uri_t ws_uri = {
-        .uri          = "/ws",
-        .method       = HTTP_GET,
-        .handler      = ws_handler,
-        .is_websocket = true,
+        .uri                    = "/ws",
+        .method                 = HTTP_GET,
+        .handler                = ws_handler,
+        .is_websocket           = true,
+        .handle_ws_control_frames = true,
     };
     httpd_register_uri_handler(s_server, &ws_uri);
 

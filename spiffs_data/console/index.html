@@ -58,6 +58,9 @@ textarea:focus{border-color:#555}
 #del-skill-btn{margin-left:auto;background:#5a1f1f;border-color:#8b3333;color:#ffaaaa}
 #del-skill-btn:hover{background:#6b2020}
 #new-skill-btn{width:100%;margin-bottom:6px}
+#chat-bar{display:flex;gap:6px;padding:6px 10px;background:#222;border-top:1px solid #333;flex-shrink:0}
+#chat-input{flex:1;background:#1a1a1a;color:#ddd;border:1px solid #444;padding:5px 8px;font-family:monospace;font-size:0.82rem;border-radius:3px;outline:none}
+#chat-input:focus{border-color:#555}
 .toggle{position:relative;display:inline-block;width:34px;height:18px;flex-shrink:0}
 .toggle input{opacity:0;width:0;height:0;position:absolute}
 .toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#444;border-radius:18px;transition:.25s}
@@ -87,6 +90,10 @@ textarea:focus{border-color:#555}
 </nav>
 <div id="content">
   <div id="log-panel"></div>
+  <div id="chat-bar">
+    <input id="chat-input" type="text" placeholder="Send a message to C6PO..." maxlength="512" onkeydown="if(event.key==='Enter')sendMsg()" spellcheck="false">
+    <button onclick="sendMsg()">&#x27A4;</button>
+  </div>
   <div id="file-panel">
     <div class="toolbar">
       <button onclick="saveFile()">&#x1F4BE; Save</button>
@@ -200,6 +207,7 @@ function showTab(tab,btn){
   btn.classList.add('active');
   curTab=tab;
   document.getElementById('log-panel').style.display=tab==='log'?'':'none';
+  document.getElementById('chat-bar').style.display=tab==='log'?'flex':'none';
   document.getElementById('file-panel').style.display=(tab!=='log'&&tab!=='skills'&&tab!=='settings')?'flex':'none';
   document.getElementById('skill-panel').style.display=tab==='skills'?'flex':'none';
   document.getElementById('settings-panel').style.display=tab==='settings'?'flex':'none';
@@ -382,6 +390,16 @@ function saveConfig(){
     if(j.ok) loadConfig();
   })
   .catch(function(){document.getElementById('cfg-status').textContent='Save failed'});
+}
+
+/* ── Chat input ── */
+function sendMsg(){
+  var input=document.getElementById('chat-input');
+  var text=input.value.trim();
+  if(!text||!ws||ws.readyState!==1) return;
+  ws.send(JSON.stringify({type:'message',content:text,chat_id:'ws_console'}));
+  addLog('msg','[you] '+text);
+  input.value='';
 }
 
 /* ── Reboot ── */
