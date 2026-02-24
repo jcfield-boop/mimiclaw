@@ -155,7 +155,8 @@ document.getElementById('ip').textContent=location.host;
 
 /* ── WebSocket ── */
 function connect(){
-  if(ws){try{ws.close()}catch(e){}}
+  clearTimeout(reconnectTimer);reconnectTimer=null;
+  if(ws){ws.onclose=null;try{ws.close()}catch(e){}}
   dot.className='';
   ws=new WebSocket('ws://'+location.host+'/ws');
   ws.onopen=function(){dot.className='on';addLog('ws','Connected')};
@@ -172,7 +173,7 @@ function connect(){
       if(d.type==='monitor') addLog(d.event,'['+d.event+'] '+d.msg);
       else if(d.type==='response'){
         var p=d.content||'';
-        if(p.length>120) p=p.substring(0,120)+'...';
+        if(p.length>400) p=p.substring(0,400)+'...';
         addLog('msg','[\u2192 '+d.chat_id+'] '+p);
       }
     }catch(e){addLog('ws',ev.data)}

@@ -1,6 +1,7 @@
 #include "tool_web_search.h"
 #include "mimi_config.h"
 #include "proxy/http_proxy.h"
+#include "gateway/ws_server.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -114,8 +115,13 @@ static size_t url_encode(const char *src, char *dst, size_t dst_size)
 
 static void format_results(cJSON *root, char *output, size_t output_size)
 {
-    cJSON *web = cJSON_GetObjectItem(root, "web");
-    cJSON *results = web ? cJSON_GetObjectItem(web, "results") : NULL;
+    /* Try web results first, fall back to news */
+    cJSON *category = cJSON_GetObjectItem(root, "web");
+    cJSON *results = category ? cJSON_GetObjectItem(category, "results") : NULL;
+    if (!results || !cJSON_IsArray(results) || cJSON_GetArraySize(results) == 0) {
+        category = cJSON_GetObjectItem(root, "news");
+        results = category ? cJSON_GetObjectItem(category, "results") : NULL;
+    }
     if (!results || !cJSON_IsArray(results) || cJSON_GetArraySize(results) == 0) {
         snprintf(output, output_size, "No web results found.");
         return;
@@ -187,7 +193,10 @@ static esp_err_t search_direct(const char *url, search_buf_t *sb)
 
     if (err != ESP_OK) return err;
     if (status != 200) {
-        ESP_LOGE(TAG, "Search API returned %d", status);
+        char emsg[64];
+        snprintf(emsg, sizeof(emsg), "Search HTTP %d", status);
+        ESP_LOGE(TAG, "%s", emsg);
+        ws_server_broadcast_monitor("error", emsg);
         return ESP_FAIL;
     }
     return ESP_OK;
@@ -329,7 +338,7 @@ esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t o
     /* Step 1: web search with summary=1 to get summarizer key */
     char path[384];
     snprintf(path, sizeof(path),
-             "/res/v1/web/search?q=%s&count=%d&result_filter=web&extra_snippets=false&summary=1",
+             "/res/v1/web/search?q=%s&count=%d&extra_snippets=false&summary=1",
              encoded_query, SEARCH_RESULT_COUNT);
 
     /* Allocate response buffer from internal SRAM (ESP32-C6 has no PSRAM) */
@@ -359,6 +368,12 @@ esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t o
 
     /* Parse and format results */
     int resp_len = (int)sb.len;
+    {
+        char vlog[160];
+        snprintf(vlog, sizeof(vlog), "Search resp: %d bytes, starts: %.100s", resp_len, sb.data);
+        for (char *p = vlog; *p; p++) if (*p == '\n' || *p == '\r') *p = ' ';
+        ws_server_broadcast_monitor_verbose("search", vlog);
+    }
     char dbg_prefix[80];
     snprintf(dbg_prefix, sizeof(dbg_prefix), "%.70s", sb.data ? sb.data : "");
     cJSON *root = cJSON_Parse(sb.data);
@@ -380,6 +395,11 @@ esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t o
         }
     }
 
+    {
+        char klog[80];
+        snprintf(klog, sizeof(klog), "Summarizer key: %s", summarizer_key[0] ? "found" : "absent");
+        ws_server_broadcast_monitor_verbose("search", klog);
+    }
     bool used_summary = false;
     if (summarizer_key[0]) {
         /* Free web search tree before allocating summarizer buffer */

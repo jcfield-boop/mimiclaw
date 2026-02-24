@@ -57,6 +57,13 @@ static ws_client_t *find_client_by_chat_id(const char *chat_id)
 
 static ws_client_t *add_client(int fd)
 {
+    /* Reject duplicate fds (browser reconnect before server cleans up) */
+    for (int i = 0; i < MIMI_WS_MAX_CLIENTS; i++) {
+        if (s_clients[i].active && s_clients[i].fd == fd) {
+            ESP_LOGW(TAG, "Duplicate fd=%d, replacing client slot", fd);
+            return &s_clients[i];
+        }
+    }
     for (int i = 0; i < MIMI_WS_MAX_CLIENTS; i++) {
         if (!s_clients[i].active) {
             s_clients[i].fd = fd;

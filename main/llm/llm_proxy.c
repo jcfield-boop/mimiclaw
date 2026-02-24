@@ -651,18 +651,47 @@ esp_err_t llm_chat_tools(const char *system_prompt,
             cJSON *finish = cJSON_GetObjectItem(choice0, "finish_reason");
             if (finish && cJSON_IsString(finish)) {
                 resp->tool_use = (strcmp(finish->valuestring, "tool_calls") == 0);
+                char fmsg[64];
+                snprintf(fmsg, sizeof(fmsg), "LLM finish_reason: %s", finish->valuestring);
+                ws_server_broadcast_monitor_verbose("llm", fmsg);
             }
 
             cJSON *message = cJSON_GetObjectItem(choice0, "message");
             if (message) {
                 cJSON *content = cJSON_GetObjectItem(message, "content");
-                if (content && cJSON_IsString(content)) {
+                if (!content || cJSON_IsNull(content)) {
+                    /* content:null is expected when finish_reason=tool_calls;
+                     * unexpected when finish_reason=stop — log it either way */
+                    char emsg[80];
+                    snprintf(emsg, sizeof(emsg), "LLM: null content (finish=%s)",
+                             finish && cJSON_IsString(finish) ? finish->valuestring : "?");
+                    ws_server_broadcast_monitor_verbose("llm", emsg);
+                } else if (!cJSON_IsString(content)) {
+                    char emsg[64];
+                    snprintf(emsg, sizeof(emsg), "LLM: unexpected content type %d", content->type);
+                    ws_server_broadcast_monitor("error", emsg);
+                } else {
                     size_t tlen = strlen(content->valuestring);
-                    resp->text = calloc(1, tlen + 1);
-                    if (resp->text) {
-                        memcpy(resp->text, content->valuestring, tlen);
-                        resp->text_len = tlen;
+                    {
+                        char vmsg[80];
+                        snprintf(vmsg, sizeof(vmsg), "LLM text alloc: %u bytes (heap: %u free)",
+                                 (unsigned)tlen,
+                                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+                        ws_server_broadcast_monitor_verbose("llm", vmsg);
                     }
+                    resp->text = calloc(1, tlen + 1);
+                    if (!resp->text) {
+                        char emsg[96];
+                        snprintf(emsg, sizeof(emsg), "LLM: OOM for text (%u bytes, heap %u free)",
+                                 (unsigned)tlen,
+                                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+                        ESP_LOGE(TAG, "%s", emsg);
+                        ws_server_broadcast_monitor("error", emsg);
+                        cJSON_Delete(root);
+                        return ESP_ERR_NO_MEM;
+                    }
+                    memcpy(resp->text, content->valuestring, tlen);
+                    resp->text_len = tlen;
                 }
 
                 cJSON *tool_calls = cJSON_GetObjectItem(message, "tool_calls");
