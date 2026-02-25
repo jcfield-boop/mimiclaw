@@ -35,7 +35,7 @@ Tested on: ESP32-C6FH4 (revision v0.2).
 - **Web console** on port 80 — live activity log, file editors, skills manager, memory monitor
 - **Chat input** in Live Log — send messages directly from the browser without leaving the log view
 - **LLM providers** — Anthropic (Claude), OpenRouter (300+ models), or any OpenAI-compatible endpoint
-- **Tool use** — web search (Brave Search API with Answers/Summarizer), read/write/edit SPIFFS files, cron scheduling
+- **Tool use** — web search (Tavily or Brave Search API), read/write/edit SPIFFS files, cron scheduling
 - **Skills system** — teach the bot new capabilities via Markdown files; create/edit/delete from the browser
 - **Session memory** — per-chat conversation history stored in SPIFFS
 - **Long-term memory** — persistent MEMORY.md updated by the agent over time
@@ -51,13 +51,13 @@ Browse to `http://<device-ip>` after it connects to WiFi (the IP is printed in t
 
 | Tab | Description |
 |---|---|
-| **Live Log** | Real-time stream of LLM calls, tool results, errors, and responses. Shows token counts per call and full error bodies from the API. Capped at 250 entries; use the ✕ button to clear. **Chat input bar** at the bottom lets you send messages directly from the browser. |
+| **Live Log** | Real-time stream of LLM calls, tool results, errors, and responses. Shows token counts, the actual model selected (useful with `openrouter/auto`), iteration counter per agent turn, and full tool call arguments (e.g. `read_file {"path":"/spiffs/memory/MEMORY.md"}`). Capped at 250 entries; use the ✕ button to clear. **Chat input bar** at the bottom lets you send messages directly from the browser. |
 | **SOUL.md** | The bot's personality and values |
 | **USER.md** | Notes about you — the bot reads this on every turn |
 | **MEMORY.md** | Long-term memory written by the bot itself (auto-trimmed to 3 KB) |
 | **Skills** | List, create, edit, and delete skill files |
 | **HEARTBEAT.md** | Recurring task list — the bot checks this on a timer and acts on uncompleted items |
-| **Settings** | Set LLM provider/model/API key, Brave Search key, and **Verbose Logs** toggle from the browser |
+| **Settings** | Set LLM provider/model/API key, Web Search API key (Tavily or Brave), and **Verbose Logs** toggle from the browser |
 
 The header shows live free heap, SPIFFS usage, and session token counts (with cost estimate if using OpenRouter), refreshed every 15 seconds.
 
@@ -124,7 +124,7 @@ Enable **Verbose Logs** in the Settings tab to unlock extra detail: full WiFi IP
 
 In the web console **Settings** tab you can:
 - Set or change your LLM provider, model, and API key
-- Set your **Brave Search** API key (get one free at [brave.com/search/api](https://brave.com/search/api/)) to enable the `web_search` tool
+- Set your **Web Search API key** to enable the `web_search` tool — [Tavily](https://tavily.com) (`tvly-...`) is recommended for AI agents; [Brave Search](https://brave.com/search/api/) also works
 
 Then open the **SOUL.md** tab to edit the bot's personality, and **USER.md** to tell the bot about yourself.
 
@@ -153,14 +153,13 @@ idf.py build
 idf.py -p /dev/ttyUSB0 flash
 ```
 
-This flashes firmware and SPIFFS (web console + default skill files) in one step.
+**Always use `app-flash` for firmware updates** — it flashes only the application binary and leaves the SPIFFS partition (and everything in it) untouched:
 
-> **Tip:** To preserve user-edited files (SOUL.md, USER.md, HEARTBEAT.md, custom skills, MEMORY.md) when updating firmware, use `idf.py app-flash` instead — it flashes only the application binary and leaves the SPIFFS partition untouched:
-> ```bash
-> idf.py -p /dev/ttyUSB0 app-flash
-> ```
->
-> **Note:** `idf.py flash` (full flash) re-initialises the entire SPIFFS partition. **SOUL.md, USER.md, and HEARTBEAT.md are re-created from defaults only if they are missing**, so they survive a full flash once they have been created. Custom skills and MEMORY.md are reset on full flash.
+```bash
+idf.py -p /dev/ttyUSB0 app-flash
+```
+
+> ⚠️ **Never run `idf.py flash` (full flash) on a running device.** It erases the entire SPIFFS partition — destroying MEMORY.md, daily notes, custom skills, and all agent-written files. MEMORY.md is the long-term brain of the device; losing it means C6PO forgets everything it has learned about you. Full flash is only appropriate for first-time setup on a blank device.
 
 ### Monitor boot (optional)
 
@@ -189,7 +188,7 @@ set_model_provider anthropic          # or: openrouter, openai
 set_api_key <your-api-key>
 set_model claude-opus-4-5
 
-# Optional: web search (Brave Search API key — see brave.com/search/api)
+# Optional: web search (Tavily key — tavily.com — or Brave Search key)
 set_search_key <key>
 
 # Show current config
@@ -218,15 +217,25 @@ You can also set this from the browser: open the web console **Settings** tab.
 
 ## Web Search
 
-Web search uses the [Brave Search API](https://brave.com/search/api/).
+C6PO supports two search providers — set your key in the web console **Settings** tab or via serial CLI:
 
 ```
-set_search_key <your-brave-search-key>
+set_search_key <your-key>
 ```
 
-Or set it from the browser in the web console **Settings** tab. The key is stored in NVS and survives firmware updates. If the key is not set, the `web_search` tool will be unavailable and the agent will say so.
+The key is stored in NVS and survives firmware updates. If no key is set, the `web_search` tool is unavailable and the agent will say so.
 
-**Brave Answers / Summarizer plan:** If your API key has access to the Brave Answers plan, C6PO automatically uses the two-step summarizer flow — first fetching web results with `summary=1`, then calling `/res/v1/summarizer/search` to get an AI-generated answer. If no summarizer key is returned (free-tier keys), it falls back to formatting the top web results directly. The Answers plan costs $4.00 per 1,000 queries (vs $3.00 for raw results); usage is tracked in the web console header.
+### Tavily (recommended)
+
+[Tavily](https://tavily.com) is purpose-built for AI agents and returns clean, structured results with an AI-generated answer. Keys start with `tvly-`.
+
+- Generous free tier for development
+- Returns a direct answer + up to 5 source snippets
+- Automatically detected by the `tvly-` prefix — no extra configuration needed
+
+### Brave Search
+
+[Brave Search API](https://brave.com/search/api/) is also supported. If your key has access to the Answers/Summarizer plan, C6PO uses the two-step summarizer flow automatically. Free-tier keys fall back to formatting raw web results.
 
 ---
 
@@ -234,13 +243,20 @@ Or set it from the browser in the web console **Settings** tab. The key is store
 
 Skills are Markdown files at `/spiffs/skills/<name>.md`. The agent reads them as part of its system prompt so it knows what capabilities are available and how to use them.
 
-Three built-in skills are installed on first boot: **weather**, **daily-briefing**, and **skill-creator**.
+Four built-in skills are installed and kept up to date on every boot:
+
+| Skill | Purpose |
+|---|---|
+| `weather` | Get current weather and forecasts via web search |
+| `daily-briefing` | Compile a personalised morning update |
+| `skill-creator` | Teach the bot new capabilities by writing skill files |
+| `self-test` | Run a 7-point validation checklist (clock, memory read/write, edit, web search, file list) |
 
 Create new skills from the **Skills tab** in the web console, or just ask the bot:
 
 > "Create a skill that translates text to French"
 
-> **Note:** Skills are stored in SPIFFS. Custom skills are reset by `idf.py flash` (full flash). Use `idf.py app-flash` to update firmware without touching SPIFFS.
+> **Note:** Built-in skills are always refreshed on boot so firmware updates take effect immediately. Custom skills live in SPIFFS and survive `app-flash` updates — only a full `idf.py flash` erases them.
 
 ---
 
@@ -250,11 +266,11 @@ C6PO automatically manages its storage to stay within the 1.9 MB SPIFFS limit:
 
 | File | Behaviour |
 |---|---|
-| `SOUL.md`, `USER.md`, `HEARTBEAT.md` | Persist across firmware flashes — only created from defaults if missing |
-| `MEMORY.md` | Auto-trimmed to 3 KB when the agent writes to it (oldest content dropped) |
-| `memory/YYYY-MM-DD.md` | Daily notes older than 7 days are deleted on boot |
+| `SOUL.md`, `USER.md`, `HEARTBEAT.md` | Survive `app-flash` updates; only created from defaults on first boot |
+| `MEMORY.md` | The device's long-term brain — survives power cycles and `app-flash`; **erased by full `idf.py flash`** |
+| `memory/YYYY-MM-DD.md` | Daily notes — survive power cycles; older than 7 days deleted on boot |
 | Sessions (`sessions/*.json`) | Each chat capped at 15 messages; use `session_clear <id>` to reset |
-| Skills (`skills/*.md`) | No automatic pruning — manage via the Skills tab or `skill_list` CLI |
+| Skills (`skills/*.md`) | Built-ins refreshed on every boot; custom skills survive `app-flash` |
 
 ---
 
