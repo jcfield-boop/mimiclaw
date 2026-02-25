@@ -182,7 +182,8 @@ esp_err_t tool_smtp_execute(const char *input_json, char *output, size_t output_
     /* Default from_address to username if not set */
     if (!creds.from_addr[0]) strncpy(creds.from_addr, creds.username, sizeof(creds.from_addr) - 1);
 
-    cJSON_Delete(input);
+    /* NOTE: cJSON_Delete(input) deferred to smtp_done — subject/body pointers
+     * alias into the cJSON tree and must stay valid until after smtp_write. */
 
     ESP_LOGI(TAG, "Sending email to %s via %s:%d", creds.to_addr, creds.smtp_host, creds.port);
     ws_server_broadcast_monitor_verbose("email", "Connecting to SMTP...");
@@ -276,6 +277,7 @@ esp_err_t tool_smtp_execute(const char *input_json, char *output, size_t output_
     ws_server_broadcast_monitor("email", "Email sent OK");
 
 smtp_done:
+    cJSON_Delete(input);
     /* Zero credentials in stack buffers before returning */
     memset(b64u, 0, sizeof(b64u));
     memset(b64p, 0, sizeof(b64p));
