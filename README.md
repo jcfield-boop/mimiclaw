@@ -35,7 +35,7 @@ Tested on: ESP32-C6FH4 (revision v0.2).
 - **Web console** on port 80 — live activity log, file editors, skills manager, memory monitor
 - **Chat input** in Live Log — send messages directly from the browser without leaving the log view
 - **LLM providers** — Anthropic (Claude), OpenRouter (300+ models), or any OpenAI-compatible endpoint
-- **Tool use** — web search (Tavily or Brave Search API), read/write/edit SPIFFS files, cron scheduling
+- **Tool use** — web search (Tavily or Brave Search API), read/write/edit SPIFFS files, cron scheduling, generic HTTPS requests (email, webhooks, REST APIs)
 - **Skills system** — teach the bot new capabilities via Markdown files; create/edit/delete from the browser
 - **Session memory** — per-chat conversation history stored in SPIFFS
 - **Long-term memory** — persistent MEMORY.md updated by the agent over time
@@ -242,6 +242,24 @@ The key is stored in NVS and survives firmware updates. If no key is set, the `w
 
 ---
 
+## http_request Tool
+
+The `http_request` tool lets the agent call any HTTPS API directly — no new firmware needed for each service. The agent reads credentials from SERVICES.md, builds the request, and calls the API.
+
+```
+# Example: send email via Resend
+http_request {
+  url: "https://api.resend.com/emails",
+  method: "POST",
+  headers: {"Authorization": "Bearer re_xxx", "Content-Type": "application/json"},
+  body: "{\"from\":\"C6PO <you@domain.com>\",\"to\":[\"you@email.com\"],\"subject\":\"Hello\",\"text\":\"Hi from C6PO\"}"
+}
+```
+
+The tool returns `HTTP <status>\n<response body>`. Response bodies are capped at 4 KB.
+
+---
+
 ## Credential Storage
 
 Service credentials (email API keys, flight tracker tokens, etc.) are stored in `/spiffs/config/SERVICES.md` — a plain Markdown file on SPIFFS. The agent reads it only when a skill requires it and is instructed never to quote or repeat any credential value in a response.
@@ -266,6 +284,7 @@ Four built-in skills are installed and kept up to date on every boot:
 |---|---|
 | `weather` | Get current weather and forecasts via web search |
 | `daily-briefing` | Compile a personalised morning update |
+| `email` | Send email via [Resend](https://resend.com) using credentials from SERVICES.md |
 | `skill-creator` | Teach the bot new capabilities by writing skill files |
 | `self-test` | Run a 7-point validation checklist (clock, memory read/write, edit, web search, file list) |
 

@@ -3,6 +3,7 @@
 #include "tools/tool_get_time.h"
 #include "tools/tool_files.h"
 #include "tools/tool_cron.h"
+#include "tools/tool_http.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -10,7 +11,7 @@
 
 static const char *TAG = "tools";
 
-#define MAX_TOOLS 12
+#define MAX_TOOLS 13
 
 static mimi_tool_t s_tools[MAX_TOOLS];
 static int s_tool_count = 0;
@@ -175,6 +176,23 @@ esp_err_t tool_registry_init(void)
         .execute = tool_cron_remove_execute,
     };
     register_tool(&cr);
+
+    /* Register http_request */
+    mimi_tool_t hr = {
+        .name = "http_request",
+        .description = "Make an HTTPS GET or POST request to an external API. Use this to call services like email (Resend), SMS, or any REST API. Read credentials from /spiffs/config/SERVICES.md first.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{"
+            "\"url\":{\"type\":\"string\",\"description\":\"Full HTTPS URL to call\"},"
+            "\"method\":{\"type\":\"string\",\"description\":\"HTTP method: GET or POST (default: GET)\"},"
+            "\"headers\":{\"type\":\"object\",\"description\":\"Optional HTTP headers as key/value pairs\"},"
+            "\"body\":{\"type\":\"string\",\"description\":\"Optional request body string (for POST)\"}"
+            "},"
+            "\"required\":[\"url\"]}",
+        .execute = tool_http_execute,
+    };
+    register_tool(&hr);
 
     build_tools_json();
 

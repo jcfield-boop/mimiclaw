@@ -108,6 +108,38 @@ static const char *TAG = "skills";
     "... etc\n" \
     "End with: 'N/7 tests passed.'\n"
 
+#define BUILTIN_EMAIL \
+    "# Email\n" \
+    "\n" \
+    "Send an email using the Resend API and credentials in /spiffs/config/SERVICES.md.\n" \
+    "\n" \
+    "## When to use\n" \
+    "When the user asks to send an email, or when a skill needs to deliver a report by email.\n" \
+    "\n" \
+    "## How to use\n" \
+    "1. Call read_file on /spiffs/config/SERVICES.md to get the Resend api_key and from_address\n" \
+    "2. Identify the recipient (from the user's request or USER.md)\n" \
+    "3. Build the request body JSON:\n" \
+    "   {\"from\":\"<from_address>\",\"to\":[\"<recipient>\"],\"subject\":\"<subject>\",\"text\":\"<body>\"}\n" \
+    "4. Call http_request:\n" \
+    "   - url: https://api.resend.com/emails\n" \
+    "   - method: POST\n" \
+    "   - headers: {\"Authorization\":\"Bearer <api_key>\",\"Content-Type\":\"application/json\"}\n" \
+    "   - body: the JSON string from step 3\n" \
+    "5. Report success or failure. Never repeat the api_key in your response.\n" \
+    "\n" \
+    "## SERVICES.md format expected\n" \
+    "## Email\n" \
+    "service: Resend\n" \
+    "api_key: re_xxxx\n" \
+    "from_address: C6PO <you@yourdomain.com>\n" \
+    "to_address: you@email.com\n" \
+    "\n" \
+    "## Notes\n" \
+    "- Resend requires a verified sending domain. Free tier: 3,000 emails/month.\n" \
+    "- If credentials are missing, tell the user to add them to SERVICES.md.\n" \
+    "- Use 'html' instead of 'text' in the body JSON for HTML-formatted emails.\n"
+
 #define BUILTIN_SKILL_CREATOR \
     "# Skill Creator\n" \
     "\n" \
@@ -150,6 +182,7 @@ typedef struct {
 static const builtin_skill_t s_builtins[] = {
     { "weather",        BUILTIN_WEATHER        },
     { "daily-briefing", BUILTIN_DAILY_BRIEFING },
+    { "email",          BUILTIN_EMAIL          },
     { "skill-creator",  BUILTIN_SKILL_CREATOR  },
     { "self-test",      BUILTIN_SELF_TEST      },
 };

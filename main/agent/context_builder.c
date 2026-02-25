@@ -42,6 +42,7 @@ esp_err_t context_build_system_prompt(char *buf, size_t size)
         "- read_file / write_file / edit_file / list_dir: SPIFFS file access (/spiffs/)\n"
         "- cron_add / cron_list / cron_remove: scheduled tasks"
         " (set channel='telegram' + numeric chat_id for Telegram delivery)\n"
+        "- http_request: HTTPS GET/POST to external APIs (email, SMS, webhooks, etc.)\n"
         "Use tools when needed.\n\n"
         "## File Paths\n"
         "- /spiffs/config/USER.md — user profile (name, timezone, preferences)\n"
