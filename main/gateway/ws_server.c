@@ -197,6 +197,7 @@ static const char *name_to_path(const char *name)
     if (name && strcmp(name, "user")      == 0) return MIMI_USER_FILE;
     if (name && strcmp(name, "memory")   == 0) return MIMI_MEMORY_FILE;
     if (name && strcmp(name, "heartbeat") == 0) return MIMI_HEARTBEAT_FILE;
+    if (name && strcmp(name, "services")  == 0) return "/spiffs/config/SERVICES.md";
     return NULL;
 }
 
