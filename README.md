@@ -35,7 +35,7 @@ Tested on: ESP32-C6FH4 (revision v0.2).
 - **Web console** on port 80 — live activity log, file editors, skills manager, memory monitor
 - **Chat input** in Live Log — send messages directly from the browser without leaving the log view
 - **LLM providers** — Anthropic (Claude), OpenRouter (300+ models), or any OpenAI-compatible endpoint
-- **Tool use** — web search (Tavily or Brave Search API), read/write/edit SPIFFS files, cron scheduling, generic HTTPS requests (email, webhooks, REST APIs)
+- **Tool use** — web search (Tavily or Brave Search API), read/write/edit SPIFFS files, cron scheduling, generic HTTPS requests, Gmail SMTP email
 - **Skills system** — teach the bot new capabilities via Markdown files; create/edit/delete from the browser
 - **Session memory** — per-chat conversation history stored in SPIFFS
 - **Long-term memory** — persistent MEMORY.md updated by the agent over time
@@ -242,21 +242,30 @@ The key is stored in NVS and survives firmware updates. If no key is set, the `w
 
 ---
 
-## http_request Tool
+## Tools: http_request and send_email
 
-The `http_request` tool lets the agent call any HTTPS API directly — no new firmware needed for each service. The agent reads credentials from SERVICES.md, builds the request, and calls the API.
+### http_request
+Generic HTTPS GET/POST — the agent can call any REST API, webhook, or service. The agent reads credentials from SERVICES.md, builds the request, and calls the tool.
 
+Returns `HTTP <status>\n<response body>`. Response bodies are capped at 4 KB.
+
+### send_email
+Sends email via Gmail SMTP/TLS (port 465) using a Gmail App Password. Credentials are read directly from SERVICES.md and never appear in the LLM context window.
+
+Add your credentials to the SERVICES.md tab in the web console:
+
+```markdown
+## Email
+service: Gmail
+smtp_host: smtp.gmail.com
+smtp_port: 465
+username: you@gmail.com
+password: xxxx xxxx xxxx xxxx
+from_address: C6PO <you@gmail.com>
+to_address: you@gmail.com
 ```
-# Example: send email via Resend
-http_request {
-  url: "https://api.resend.com/emails",
-  method: "POST",
-  headers: {"Authorization": "Bearer re_xxx", "Content-Type": "application/json"},
-  body: "{\"from\":\"C6PO <you@domain.com>\",\"to\":[\"you@email.com\"],\"subject\":\"Hello\",\"text\":\"Hi from C6PO\"}"
-}
-```
 
-The tool returns `HTTP <status>\n<response body>`. Response bodies are capped at 4 KB.
+Generate an App Password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (requires 2-Step Verification). Then ask C6PO: *"send me a test email"*.
 
 ---
 
@@ -284,7 +293,7 @@ Four built-in skills are installed and kept up to date on every boot:
 |---|---|
 | `weather` | Get current weather and forecasts via web search |
 | `daily-briefing` | Compile a personalised morning update |
-| `email` | Send email via [Resend](https://resend.com) using credentials from SERVICES.md |
+| `email` | Send email via Gmail SMTP using an App Password from SERVICES.md |
 | `skill-creator` | Teach the bot new capabilities by writing skill files |
 | `self-test` | Run a 7-point validation checklist (clock, memory read/write, edit, web search, file list) |
 

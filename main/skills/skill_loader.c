@@ -111,34 +111,33 @@ static const char *TAG = "skills";
 #define BUILTIN_EMAIL \
     "# Email\n" \
     "\n" \
-    "Send an email using the Resend API and credentials in /spiffs/config/SERVICES.md.\n" \
+    "Send an email via Gmail using the send_email tool.\n" \
     "\n" \
     "## When to use\n" \
-    "When the user asks to send an email, or when a skill needs to deliver a report by email.\n" \
+    "When the user asks to send an email, or when a skill needs to deliver a report by email\n" \
+    "(e.g. daily briefing, flight alert, price watch result).\n" \
     "\n" \
     "## How to use\n" \
-    "1. Call read_file on /spiffs/config/SERVICES.md to get the Resend api_key and from_address\n" \
-    "2. Identify the recipient (from the user's request or USER.md)\n" \
-    "3. Build the request body JSON:\n" \
-    "   {\"from\":\"<from_address>\",\"to\":[\"<recipient>\"],\"subject\":\"<subject>\",\"text\":\"<body>\"}\n" \
-    "4. Call http_request:\n" \
-    "   - url: https://api.resend.com/emails\n" \
-    "   - method: POST\n" \
-    "   - headers: {\"Authorization\":\"Bearer <api_key>\",\"Content-Type\":\"application/json\"}\n" \
-    "   - body: the JSON string from step 3\n" \
-    "5. Report success or failure. Never repeat the api_key in your response.\n" \
+    "1. Identify subject and body from context\n" \
+    "2. Call send_email with subject and body. Optionally pass 'to' to override the default recipient.\n" \
+    "3. Report success or failure to the user.\n" \
+    "   Do not mention credentials or internal details.\n" \
     "\n" \
-    "## SERVICES.md format expected\n" \
+    "## SERVICES.md format required\n" \
     "## Email\n" \
-    "service: Resend\n" \
-    "api_key: re_xxxx\n" \
-    "from_address: C6PO <you@yourdomain.com>\n" \
-    "to_address: you@email.com\n" \
+    "service: Gmail\n" \
+    "smtp_host: smtp.gmail.com\n" \
+    "smtp_port: 465\n" \
+    "username: you@gmail.com\n" \
+    "password: xxxx xxxx xxxx xxxx\n" \
+    "from_address: C6PO <you@gmail.com>\n" \
+    "to_address: you@gmail.com\n" \
     "\n" \
     "## Notes\n" \
-    "- Resend requires a verified sending domain. Free tier: 3,000 emails/month.\n" \
-    "- If credentials are missing, tell the user to add them to SERVICES.md.\n" \
-    "- Use 'html' instead of 'text' in the body JSON for HTML-formatted emails.\n"
+    "- Requires a Gmail App Password (not your main password).\n" \
+    "  Generate one at: myaccount.google.com/apppasswords\n" \
+    "- 2-Step Verification must be enabled on the Gmail account.\n" \
+    "- If credentials are missing or wrong, tell the user to check SERVICES.md.\n"
 
 #define BUILTIN_SKILL_CREATOR \
     "# Skill Creator\n" \

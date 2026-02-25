@@ -4,6 +4,7 @@
 #include "tools/tool_files.h"
 #include "tools/tool_cron.h"
 #include "tools/tool_http.h"
+#include "tools/tool_smtp.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -11,7 +12,7 @@
 
 static const char *TAG = "tools";
 
-#define MAX_TOOLS 13
+#define MAX_TOOLS 14
 
 static mimi_tool_t s_tools[MAX_TOOLS];
 static int s_tool_count = 0;
@@ -176,6 +177,23 @@ esp_err_t tool_registry_init(void)
         .execute = tool_cron_remove_execute,
     };
     register_tool(&cr);
+
+    /* Register send_email */
+    mimi_tool_t se = {
+        .name = "send_email",
+        .description = "Send an email via Gmail SMTP using credentials stored in /spiffs/config/SERVICES.md. "
+                       "Credentials are never exposed — the tool reads them directly.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{"
+            "\"subject\":{\"type\":\"string\",\"description\":\"Email subject line\"},"
+            "\"body\":{\"type\":\"string\",\"description\":\"Plain text email body\"},"
+            "\"to\":{\"type\":\"string\",\"description\":\"Recipient address (optional, defaults to to_address in SERVICES.md)\"}"
+            "},"
+            "\"required\":[\"subject\",\"body\"]}",
+        .execute = tool_smtp_execute,
+    };
+    register_tool(&se);
 
     /* Register http_request */
     mimi_tool_t hr = {
