@@ -250,19 +250,19 @@ esp_err_t tool_smtp_execute(const char *input_json, char *output, size_t output_
     SMTP_SEND("DATA");
     SMTP_CHECK(354, "DATA");
 
-    /* Message headers + body */
+    /* Headers (fits easily in cmd buffer) */
     snprintf(cmd, sizeof(cmd),
              "From: %s\r\n"
              "To: %s\r\n"
              "Subject: %s\r\n"
              "MIME-Version: 1.0\r\n"
              "Content-Type: text/plain; charset=utf-8\r\n"
-             "\r\n"
-             "%s\r\n"
-             ".\r\n",
-             creds.from_addr, creds.to_addr, subject, body);
+             "\r\n",
+             creds.from_addr, creds.to_addr, subject);
 
-    if (smtp_write(tls, cmd) < 0) {
+    if (smtp_write(tls, cmd) < 0 ||
+        smtp_write(tls, body) < 0 ||
+        smtp_write(tls, "\r\n.\r\n") < 0) {
         snprintf(output, output_size, "Error: failed to write message body");
         err = ESP_FAIL; goto smtp_done;
     }
