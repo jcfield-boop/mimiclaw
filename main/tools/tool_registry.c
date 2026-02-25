@@ -140,14 +140,17 @@ esp_err_t tool_registry_init(void)
     /* Register cron_add */
     mimi_tool_t ca = {
         .name = "cron_add",
-        .description = "Schedule a recurring or one-shot task. The message will trigger an agent turn when the job fires.",
+        .description = "Schedule a recurring or one-shot task. The message will trigger an agent turn when the job fires. "
+                       "IMPORTANT: Never guess unix timestamps from training data — use seconds_from_now for relative times, "
+                       "or call get_current_time first if you need an absolute epoch.",
         .input_schema_json =
             "{\"type\":\"object\","
             "\"properties\":{"
             "\"name\":{\"type\":\"string\",\"description\":\"Short name for the job\"},"
-            "\"schedule_type\":{\"type\":\"string\",\"description\":\"'every' for recurring interval or 'at' for one-shot at a unix timestamp\"},"
+            "\"schedule_type\":{\"type\":\"string\",\"description\":\"'every' for recurring interval or 'at' for one-shot\"},"
             "\"interval_s\":{\"type\":\"integer\",\"description\":\"Interval in seconds (required for 'every')\"},"
-            "\"at_epoch\":{\"type\":\"integer\",\"description\":\"Unix timestamp to fire at (required for 'at')\"},"
+            "\"seconds_from_now\":{\"type\":\"integer\",\"description\":\"PREFERRED for 'at': fire this many seconds from now (e.g. 300 = in 5 minutes). Avoids epoch calculation errors.\"},"
+            "\"at_epoch\":{\"type\":\"integer\",\"description\":\"Absolute unix timestamp to fire at. Only use this if you have called get_current_time and have a verified current epoch.\"},"
             "\"message\":{\"type\":\"string\",\"description\":\"Message to inject when the job fires, triggering an agent turn\"},"
             "\"channel\":{\"type\":\"string\",\"description\":\"Optional reply channel (e.g. 'telegram'). If omitted, current turn channel is used when available\"},"
             "\"chat_id\":{\"type\":\"string\",\"description\":\"Optional reply chat_id. Required when channel='telegram'. If omitted during a Telegram turn, current chat_id is used\"}"

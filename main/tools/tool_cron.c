@@ -66,21 +66,43 @@ esp_err_t tool_cron_add_execute(const char *input_json, char *output, size_t out
         job.delete_after_run = false;
     } else if (strcmp(schedule_type, "at") == 0) {
         job.kind = CRON_KIND_AT;
-        cJSON *at_epoch = cJSON_GetObjectItem(root, "at_epoch");
-        if (!at_epoch || !cJSON_IsNumber(at_epoch)) {
-            snprintf(output, output_size, "Error: 'at' schedule requires 'at_epoch' (unix timestamp)");
-            cJSON_Delete(root);
-            return ESP_ERR_INVALID_ARG;
-        }
-        job.at_epoch = (int64_t)at_epoch->valuedouble;
 
-        /* Check if already in the past */
-        time_t now = time(NULL);
-        if (job.at_epoch <= now) {
-            snprintf(output, output_size, "Error: at_epoch %lld is in the past (now=%lld)",
-                     (long long)job.at_epoch, (long long)now);
-            cJSON_Delete(root);
-            return ESP_ERR_INVALID_ARG;
+        /* Support seconds_from_now as an alternative to at_epoch.
+         * This avoids LLM epoch hallucination — the model just says
+         * "in 300 seconds" instead of guessing an absolute timestamp. */
+        cJSON *sfn = cJSON_GetObjectItem(root, "seconds_from_now");
+        if (sfn && cJSON_IsNumber(sfn) && sfn->valuedouble > 0) {
+            time_t now = time(NULL);
+            job.at_epoch = (int64_t)(now + (int64_t)sfn->valuedouble);
+        } else {
+            cJSON *at_epoch = cJSON_GetObjectItem(root, "at_epoch");
+            if (!at_epoch || !cJSON_IsNumber(at_epoch)) {
+                snprintf(output, output_size,
+                         "Error: 'at' schedule requires 'at_epoch' (unix timestamp) "
+                         "or 'seconds_from_now' (relative offset). "
+                         "Call get_current_time first to obtain the current epoch.");
+                cJSON_Delete(root);
+                return ESP_ERR_INVALID_ARG;
+            }
+            job.at_epoch = (int64_t)at_epoch->valuedouble;
+
+            /* Check if already in the past */
+            time_t now = time(NULL);
+            if (job.at_epoch <= now) {
+                char now_str[32] = {0};
+                struct tm now_tm;
+                localtime_r(&now, &now_tm);
+                strftime(now_str, sizeof(now_str), "%Y-%m-%d %H:%M:%S %Z", &now_tm);
+                snprintf(output, output_size,
+                         "Error: at_epoch %lld is in the past. "
+                         "Current device time: %s (unix: %lld). "
+                         "LLM training data may contain stale epoch values. "
+                         "Call get_current_time to get the real current epoch, "
+                         "then use seconds_from_now or recalculate at_epoch.",
+                         (long long)job.at_epoch, now_str, (long long)now);
+                cJSON_Delete(root);
+                return ESP_ERR_INVALID_ARG;
+            }
         }
 
         /* Default: delete one-shot jobs after run */
