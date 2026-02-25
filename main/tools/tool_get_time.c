@@ -57,6 +57,8 @@ static bool parse_and_set_time(const char *date_str, char *out, size_t out_size)
     struct tm local;
     localtime_r(&t, &local);
     strftime(out, out_size, "%Y-%m-%d %H:%M:%S %Z (%A)", &local);
+    size_t used = strlen(out);
+    snprintf(out + used, out_size - used, " [unix: %lld]", (long long)t);
 
     return true;
 }
