@@ -7,6 +7,7 @@
 #include "esp_spiffs.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "esp_netif.h"
 #include "esp_app_desc.h"
 
 static const char *TAG = "tool_sysinfo";
@@ -29,11 +30,19 @@ esp_err_t tool_system_info_execute(const char *input_json, char *output, size_t 
     int minutes = (int)((uptime_s % 3600) / 60);
     int seconds = (int)(uptime_s % 60);
 
-    /* WiFi RSSI */
+    /* WiFi RSSI + local IP */
     int rssi = 0;
+    char ip_str[16] = "0.0.0.0";
     wifi_ap_record_t ap_info;
     if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
         rssi = ap_info.rssi;
+    }
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (netif) {
+        esp_netif_ip_info_t ip_info;
+        if (esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+            snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
+        }
     }
 
     /* Firmware version */
@@ -54,7 +63,7 @@ esp_err_t tool_system_info_execute(const char *input_json, char *output, size_t 
              "Free heap: %lu bytes (min: %lu)\n"
              "SPIFFS: %u / %u bytes used (%d%%)\n"
              "Uptime: %s\n"
-             "WiFi RSSI: %d dBm\n"
+             "WiFi: %s  RSSI: %d dBm\n"
              "Firmware: %s (built %s %s)",
              (unsigned long)free_heap,
              (unsigned long)min_heap,
@@ -62,6 +71,7 @@ esp_err_t tool_system_info_execute(const char *input_json, char *output, size_t 
              (unsigned)spiffs_total,
              spiffs_pct,
              uptime_str,
+             ip_str,
              rssi,
              desc ? desc->version : "unknown",
              desc ? desc->date    : "",
