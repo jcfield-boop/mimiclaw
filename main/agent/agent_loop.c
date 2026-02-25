@@ -153,7 +153,12 @@ static cJSON *build_tool_results(const llm_response_t *resp, const mimi_msg_t *m
 
         /* Execute tool */
         tool_output[0] = '\0';
-        ws_server_broadcast_monitor("tool", call->name);
+        {
+            char tool_mon[128];
+            snprintf(tool_mon, sizeof(tool_mon), "%s %.80s", call->name, tool_input);
+            for (char *p = tool_mon; *p; p++) if (*p == '\n' || *p == '\r') *p = ' ';
+            ws_server_broadcast_monitor("tool", tool_mon);
+        }
         tool_registry_execute(call->name, tool_input, tool_output, tool_output_size);
         free(patched_input);
 
@@ -247,6 +252,7 @@ static void agent_loop_task(void *arg)
         char *final_text = NULL;
         int iteration = 0;
         bool sent_working_status = false;
+        bool recovery_tried = false;
 
         while (iteration < MIMI_AGENT_MAX_TOOL_ITER) {
             /* Send "working" indicator before each API call */
@@ -267,7 +273,11 @@ static void agent_loop_task(void *arg)
             }
 #endif
 
-            ws_server_broadcast_monitor("llm", "calling LLM...");
+            {
+                char itermsg[48];
+                snprintf(itermsg, sizeof(itermsg), "calling LLM (iter %d)...", iteration + 1);
+                ws_server_broadcast_monitor("llm", itermsg);
+            }
             llm_response_t resp;
             err = llm_chat_tools(system_prompt, messages, tools_json, &resp);
 
@@ -283,8 +293,23 @@ static void agent_loop_task(void *arg)
                 /* Normal completion — save final text and break */
                 if (resp.text && resp.text_len > 0) {
                     final_text = strdup(resp.text);
+                    llm_response_free(&resp);
+                    break;
                 }
+                /* Empty response: if truncated at max_tokens, inject recovery once */
+                bool do_recovery = resp.truncated && !recovery_tried;
                 llm_response_free(&resp);
+                if (do_recovery) {
+                    recovery_tried = true;
+                    iteration++;
+                    ws_server_broadcast_monitor("error", "LLM: truncated, injecting recovery");
+                    cJSON *recovery = cJSON_CreateObject();
+                    cJSON_AddStringToObject(recovery, "role", "user");
+                    cJSON_AddStringToObject(recovery, "content",
+                        "Your response was cut off. Please give a brief, direct text answer now. Do not use any tools.");
+                    cJSON_AddItemToArray(messages, recovery);
+                    continue;
+                }
                 break;
             }
 

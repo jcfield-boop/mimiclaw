@@ -644,13 +644,24 @@ esp_err_t llm_chat_tools(const char *system_prompt,
         return ESP_FAIL;
     }
 
+    /* Broadcast which model was actually used — useful when using openrouter/auto */
+    {
+        cJSON *model_item = cJSON_GetObjectItem(root, "model");
+        if (model_item && cJSON_IsString(model_item)) {
+            char mmsg[80];
+            snprintf(mmsg, sizeof(mmsg), "LLM model: %s", model_item->valuestring);
+            ws_server_broadcast_monitor("llm", mmsg);
+        }
+    }
+
     if (provider_uses_openai_format()) {
         cJSON *choices = cJSON_GetObjectItem(root, "choices");
         cJSON *choice0 = choices && cJSON_IsArray(choices) ? cJSON_GetArrayItem(choices, 0) : NULL;
         if (choice0) {
             cJSON *finish = cJSON_GetObjectItem(choice0, "finish_reason");
             if (finish && cJSON_IsString(finish)) {
-                resp->tool_use = (strcmp(finish->valuestring, "tool_calls") == 0);
+                resp->tool_use  = (strcmp(finish->valuestring, "tool_calls") == 0);
+                resp->truncated = (strcmp(finish->valuestring, "length") == 0);
                 char fmsg[64];
                 snprintf(fmsg, sizeof(fmsg), "LLM finish_reason: %s", finish->valuestring);
                 ws_server_broadcast_monitor_verbose("llm", fmsg);

@@ -85,7 +85,9 @@ esp_err_t tool_write_file_execute(const char *input_json, char *output, size_t o
         return ESP_ERR_INVALID_ARG;
     }
 
-    FILE *f = fopen(path, "w");
+    cJSON *append_item = cJSON_GetObjectItem(root, "append");
+    bool do_append = append_item && cJSON_IsBool(append_item) && cJSON_IsTrue(append_item);
+    FILE *f = fopen(path, do_append ? "a" : "w");
     if (!f) {
         snprintf(output, output_size, "Error: cannot open file for writing: %s", path);
         cJSON_Delete(root);
@@ -102,7 +104,8 @@ esp_err_t tool_write_file_execute(const char *input_json, char *output, size_t o
         return ESP_FAIL;
     }
 
-    snprintf(output, output_size, "OK: wrote %d bytes to %s", (int)written, path);
+    snprintf(output, output_size, "OK: %s %d bytes to %s",
+             do_append ? "appended" : "wrote", (int)written, path);
     ESP_LOGI(TAG, "write_file: %s (%d bytes)", path, (int)written);
     cJSON_Delete(root);
     return ESP_OK;

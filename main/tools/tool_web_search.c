@@ -14,6 +14,10 @@
 
 static const char *TAG = "web_search";
 
+static bool is_tavily_key(const char *key) {
+    return key && strncmp(key, "tvly-", 5) == 0;
+}
+
 static char s_search_key[128] = {0};
 
 /* Cost tracking: Brave Pro = $3/1000 queries = 300 millicents/call */
@@ -303,6 +307,102 @@ static esp_err_t get_summary(const char *key, char *output, size_t output_size)
     return (output[0] != '\0') ? ESP_OK : ESP_FAIL;
 }
 
+/* ── Tavily search ────────────────────────────────────────────── */
+
+static esp_err_t search_tavily(const char *query, const char *api_key, char **out)
+{
+    char *buf = malloc(MIMI_TAVILY_BUF_SIZE);
+    if (!buf) return ESP_ERR_NO_MEM;
+
+    cJSON *body = cJSON_CreateObject();
+    cJSON_AddStringToObject(body, "api_key", api_key);
+    cJSON_AddStringToObject(body, "query", query);
+    cJSON_AddNumberToObject(body, "max_results", 5);
+    cJSON_AddBoolToObject(body, "include_answer", true);
+    char *body_str = cJSON_PrintUnformatted(body);
+    cJSON_Delete(body);
+    if (!body_str) { free(buf); return ESP_ERR_NO_MEM; }
+
+    esp_http_client_config_t cfg = {
+        .url = "https://api.tavily.com/search",
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = 15000,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+    int body_len = (int)strlen(body_str);
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+
+    esp_err_t err = esp_http_client_open(client, body_len);
+    int total = 0;
+    if (err == ESP_OK) {
+        /* Manually write POST body (set_post_field only works with perform()) */
+        int written = esp_http_client_write(client, body_str, body_len);
+        if (written < 0) {
+            ws_server_broadcast_monitor("error", "Tavily: write failed");
+            err = ESP_FAIL;
+        } else {
+            esp_http_client_fetch_headers(client);
+            int status = esp_http_client_get_status_code(client);
+            if (status != 200) {
+                char emsg[64];
+                snprintf(emsg, sizeof(emsg), "Tavily HTTP %d", status);
+                ws_server_broadcast_monitor("error", emsg);
+                err = ESP_FAIL;
+            } else {
+                int rd;
+                while ((rd = esp_http_client_read(client, buf + total,
+                                                   MIMI_TAVILY_BUF_SIZE - total - 1)) > 0) {
+                    total += rd;
+                }
+                buf[total] = '\0';
+            }
+        }
+    }
+    esp_http_client_cleanup(client);
+    free(body_str);
+
+    if (err != ESP_OK || total == 0) { free(buf); return ESP_FAIL; }
+
+    cJSON *root = cJSON_ParseWithLength(buf, total);
+    free(buf);
+    if (!root) return ESP_FAIL;
+
+    cJSON *answer  = cJSON_GetObjectItem(root, "answer");
+    cJSON *results = cJSON_GetObjectItem(root, "results");
+
+    char *output = malloc(4096);
+    if (!output) { cJSON_Delete(root); return ESP_ERR_NO_MEM; }
+    int pos = 0;
+
+    if (answer && cJSON_IsString(answer) && strlen(answer->valuestring) > 10) {
+        pos += snprintf(output + pos, 4096 - pos, "%s\n\n", answer->valuestring);
+    }
+    if (results && cJSON_IsArray(results)) {
+        int n = cJSON_GetArraySize(results);
+        for (int i = 0; i < n && i < 5 && pos < 3800; i++) {
+            cJSON *item  = cJSON_GetArrayItem(results, i);
+            cJSON *title = cJSON_GetObjectItem(item, "title");
+            cJSON *url   = cJSON_GetObjectItem(item, "url");
+            cJSON *snip  = cJSON_GetObjectItem(item, "content");
+            if (title && url) {
+                pos += snprintf(output + pos, 4096 - pos, "[%d] %s\n%s\n",
+                                i + 1,
+                                cJSON_IsString(title) ? title->valuestring : "",
+                                cJSON_IsString(url)   ? url->valuestring   : "");
+            }
+            if (snip && cJSON_IsString(snip) && pos < 3600) {
+                pos += snprintf(output + pos, 4096 - pos, "%.200s\n\n", snip->valuestring);
+            }
+        }
+    }
+    cJSON_Delete(root);
+
+    if (pos == 0) { free(output); return ESP_FAIL; }
+    *out = output;
+    return ESP_OK;
+}
+
 /* ── Execute ──────────────────────────────────────────────────── */
 
 esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t output_size)
@@ -329,6 +429,23 @@ esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t o
     }
 
     ESP_LOGI(TAG, "Searching: %s", query->valuestring);
+
+    /* Route to Tavily if key prefix matches */
+    if (is_tavily_key(s_search_key)) {
+        ws_server_broadcast_monitor_verbose("search", "Using Tavily");
+        char *result = NULL;
+        esp_err_t terr = search_tavily(query->valuestring, s_search_key, &result);
+        cJSON_Delete(input);
+        if (terr == ESP_OK && result) {
+            snprintf(output, output_size, "%s", result);
+            free(result);
+            s_total_searches++;
+        } else {
+            free(result);
+            snprintf(output, output_size, "Error: Tavily search failed");
+        }
+        return terr;
+    }
 
     /* Build URL */
     char encoded_query[256];

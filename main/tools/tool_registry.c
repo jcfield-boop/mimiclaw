@@ -95,11 +95,12 @@ esp_err_t tool_registry_init(void)
     /* Register write_file */
     mimi_tool_t wf = {
         .name = "write_file",
-        .description = "Write or overwrite a file on SPIFFS storage. Path must start with /spiffs/.",
+        .description = "Write content to a file on SPIFFS. Overwrites by default. Set append=true to append to an existing file instead of overwriting.",
         .input_schema_json =
             "{\"type\":\"object\","
             "\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Absolute path starting with /spiffs/\"},"
-            "\"content\":{\"type\":\"string\",\"description\":\"File content to write\"}},"
+            "\"content\":{\"type\":\"string\",\"description\":\"File content to write\"},"
+            "\"append\":{\"type\":\"boolean\",\"description\":\"If true, append to existing file instead of overwriting\"}},"
             "\"required\":[\"path\",\"content\"]}",
         .execute = tool_write_file_execute,
     };

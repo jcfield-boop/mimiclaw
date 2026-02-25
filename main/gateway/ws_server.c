@@ -3,6 +3,7 @@
 #include "bus/message_bus.h"
 #include "llm/llm_proxy.h"
 #include "tools/tool_web_search.h"
+#include "heartbeat/heartbeat.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -307,6 +308,17 @@ static esp_err_t reboot_handler(httpd_req_t *req)
     if (esp_timer_create(&args, &t) == ESP_OK) {
         esp_timer_start_once(t, 500 * 1000); /* 500 ms */
     }
+    return ESP_OK;
+}
+
+/* ── POST /api/heartbeat ─────────────────────────────────────────────────── */
+
+static esp_err_t heartbeat_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "application/json");
+    bool triggered = heartbeat_trigger();
+    httpd_resp_sendstr(req, triggered ? "{\"ok\":true,\"triggered\":true}"
+                                      : "{\"ok\":true,\"triggered\":false}");
     return ESP_OK;
 }
 
@@ -666,6 +678,14 @@ esp_err_t ws_server_start(void)
         .handler = reboot_handler,
     };
     httpd_register_uri_handler(s_server, &reboot_uri);
+
+    /* Heartbeat trigger */
+    httpd_uri_t heartbeat_uri = {
+        .uri    = "/api/heartbeat",
+        .method = HTTP_POST,
+        .handler = heartbeat_handler,
+    };
+    httpd_register_uri_handler(s_server, &heartbeat_uri);
 
     /* Skills list */
     httpd_uri_t skills_list_uri = {

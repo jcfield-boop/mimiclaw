@@ -15,6 +15,7 @@ static const char *TAG = "heartbeat";
 
 #define HEARTBEAT_PROMPT \
     "Read " MIMI_HEARTBEAT_FILE " and follow any instructions or tasks listed there. " \
+    "After completing each task, use edit_file to mark it done by changing '- [ ]' to '- [x]'. " \
     "If nothing needs attention, reply with just: HEARTBEAT_OK"
 
 static TimerHandle_t s_heartbeat_timer = NULL;
@@ -55,17 +56,13 @@ static bool heartbeat_has_tasks(void)
             continue;
         }
 
-        /* Skip completed checkboxes: "- [x]" or "* [x]" */
-        if ((*p == '-' || *p == '*') && *(p + 1) == ' ' && *(p + 2) == '[') {
-            char mark = *(p + 3);
-            if ((mark == 'x' || mark == 'X') && *(p + 4) == ']') {
-                continue;
-            }
+        /* Only fire on unchecked markdown checkboxes: "- [ ] task text" */
+        size_t len = strlen(p);
+        if (len >= 5 && p[0] == '-' && p[1] == ' ' &&
+            p[2] == '[' && p[3] == ' ' && p[4] == ']') {
+            found_task = true;
+            break;
         }
-
-        /* Found an actionable line */
-        found_task = true;
-        break;
     }
 
     fclose(f);

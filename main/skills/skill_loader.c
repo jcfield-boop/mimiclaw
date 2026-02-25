@@ -46,13 +46,67 @@ static const char *TAG = "skills";
     "4. Use web_search for relevant news based on user interests\n" \
     "5. Compile a concise briefing covering:\n" \
     "   - Date and time\n" \
-    "   - Weather (if location known from USER.md)\n" \
+    "   - Weather (if location known from /spiffs/config/USER.md)\n" \
     "   - Relevant news/updates based on user interests\n" \
     "   - Any pending tasks from memory\n" \
     "   - Any scheduled cron jobs\n" \
+    "6. Before responding: call write_file with append=true to log to today's daily note\n" \
+    "   at /spiffs/memory/<YYYY-MM-DD>.md (use the date from step 1).\n" \
+    "   Content: \"## Daily Briefing\\n- <one sentence summary of key topics covered>\\n\"\n" \
     "\n" \
     "## Format\n" \
     "Keep it brief — 5-10 bullet points max. Use the user's preferred language.\n"
+
+#define BUILTIN_SELF_TEST \
+    "# Self-Test\n" \
+    "\n" \
+    "Run a validation checklist and report pass/fail for each OpenClaw capability.\n" \
+    "\n" \
+    "## When to use\n" \
+    "When the user asks to run a self-test, system check, or validate that C6PO is working.\n" \
+    "\n" \
+    "## How to run\n" \
+    "Run each check in order. Report PASS or FAIL for each.\n" \
+    "\n" \
+    "### T1 — Clock\n" \
+    "Call get_current_time. PASS if returns a valid date/time.\n" \
+    "\n" \
+    "### T2 — Memory read\n" \
+    "Call read_file on /spiffs/memory/MEMORY.md.\n" \
+    "PASS if file exists and contains ## User, ## Preferences, ## Context sections.\n" \
+    "FAIL if file not found or sections missing.\n" \
+    "\n" \
+    "### T3 — Daily note write\n" \
+    "Call write_file with append=true on /spiffs/memory/<today>.md.\n" \
+    "Content: '- [self-test T3] write ok\\n'\n" \
+    "PASS if tool returns 'OK: appended'.\n" \
+    "\n" \
+    "### T4 — Daily note read-back\n" \
+    "Call read_file on the same daily note path.\n" \
+    "PASS if the content from T3 is present.\n" \
+    "\n" \
+    "### T5 — MEMORY.md edit\n" \
+    "Call edit_file on /spiffs/memory/MEMORY.md:\n" \
+    "  old_string: '## Context\\n\\n'\n" \
+    "  new_string: '## Context\\n\\n- [self-test T5] edit ok\\n\\n'\n" \
+    "PASS if tool returns 'OK: edited'.\n" \
+    "Then call edit_file again to revert: swap old/new strings.\n" \
+    "\n" \
+    "### T6 — Web search\n" \
+    "Call web_search with query 'ESP32 microcontroller'.\n" \
+    "PASS if result is non-empty and contains relevant content.\n" \
+    "FAIL if result is empty or contains 'Error'.\n" \
+    "\n" \
+    "### T7 — File list\n" \
+    "Call list_dir with prefix /spiffs/skills/.\n" \
+    "PASS if at least weather.md, daily-briefing.md, self-test.md are listed.\n" \
+    "\n" \
+    "## Output format\n" \
+    "Report as a bullet list:\n" \
+    "- T1 Clock: PASS/FAIL — <detail>\n" \
+    "- T2 Memory read: PASS/FAIL — <detail>\n" \
+    "... etc\n" \
+    "End with: 'N/7 tests passed.'\n"
 
 #define BUILTIN_SKILL_CREATOR \
     "# Skill Creator\n" \
@@ -97,6 +151,7 @@ static const builtin_skill_t s_builtins[] = {
     { "weather",        BUILTIN_WEATHER        },
     { "daily-briefing", BUILTIN_DAILY_BRIEFING },
     { "skill-creator",  BUILTIN_SKILL_CREATOR  },
+    { "self-test",      BUILTIN_SELF_TEST      },
 };
 
 #define NUM_BUILTINS (sizeof(s_builtins) / sizeof(s_builtins[0]))
@@ -108,16 +163,8 @@ static void install_builtin(const builtin_skill_t *skill)
     char path[64];
     snprintf(path, sizeof(path), "%s%s.md", MIMI_SKILLS_PREFIX, skill->filename);
 
-    /* Check if already exists */
-    FILE *f = fopen(path, "r");
-    if (f) {
-        fclose(f);
-        ESP_LOGD(TAG, "Skill exists: %s", path);
-        return;
-    }
-
-    /* Write built-in skill */
-    f = fopen(path, "w");
+    /* Always overwrite built-in skills so firmware updates take effect on boot */
+    FILE *f = fopen(path, "w");
     if (!f) {
         ESP_LOGE(TAG, "Cannot write skill: %s", path);
         return;

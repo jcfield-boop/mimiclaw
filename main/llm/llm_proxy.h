@@ -66,6 +66,7 @@ typedef struct {
     llm_tool_call_t calls[MIMI_MAX_TOOL_CALLS];
     int call_count;
     bool tool_use;                               /* stop_reason == "tool_use" */
+    bool truncated;                              /* finish_reason == "length" (max_tokens hit) */
     uint32_t input_tokens;                       /* tokens consumed from context */
     uint32_t output_tokens;                      /* tokens generated */
 } llm_response_t;

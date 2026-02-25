@@ -76,6 +76,7 @@ textarea:focus{border-color:#555}
   <span id="ip"></span>
   <span id="mem"></span>
   <span id="tok"></span>
+  <button onclick="doHeartbeat()">&#x2665; Heartbeat</button>
   <button id="reboot-btn" onclick="doReboot()">&#x21BA; Reboot</button>
 </header>
 <nav>
@@ -131,8 +132,8 @@ textarea:focus{border-color:#555}
       <input id="cfg-apikey" type="password" placeholder="sk-or-v1-..." maxlength="320" autocomplete="off">
     </div>
     <div class="field">
-      <label>Brave Search API Key</label>
-      <input id="cfg-searchkey" type="password" placeholder="BSA..." maxlength="128" autocomplete="off">
+      <label>Web Search API Key</label>
+      <input id="cfg-searchkey" type="password" placeholder="tvly-... or BSA..." maxlength="128" autocomplete="off">
     </div>
     <div style="display:flex;align-items:center;gap:10px;padding:4px 0">
       <label class="toggle"><input id="cfg-verbose" type="checkbox"><span class="toggle-slider"></span></label>
@@ -404,6 +405,15 @@ function sendMsg(){
 }
 
 /* ── Reboot ── */
+function doHeartbeat(){
+  fetch('/api/heartbeat',{method:'POST'})
+  .then(function(r){return r.json()})
+  .then(function(d){
+    addLog('ws', d.triggered ? 'Heartbeat: agent triggered' : 'Heartbeat: no tasks found in HEARTBEAT.md');
+  })
+  .catch(function(){addLog('err','Heartbeat request failed')});
+}
+
 function doReboot(){
   if(!confirm('Reboot C6PO now?')) return;
   fetch('/api/reboot',{method:'POST'})

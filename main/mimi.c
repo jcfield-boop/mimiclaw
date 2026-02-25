@@ -130,9 +130,7 @@ static void bootstrap_defaults(void)
     write_if_missing(MIMI_HEARTBEAT_FILE,
         "# Heartbeat Tasks\n"
         "\n"
-        "Add actionable tasks or reminders here.\n"
-        "The agent checks this file periodically and acts on any open items.\n"
-        "Remove completed items or mark them done: - [x] done\n");
+        "- [ ] Get the current time and write a one-line system status entry to today's daily note.\n");
 }
 
 /* Outbound dispatch task: reads from outbound queue and routes to channels */
@@ -166,6 +164,11 @@ static void outbound_dispatch_task(void *arg)
             }
         } else if (strcmp(msg.channel, MIMI_CHAN_SYSTEM) == 0) {
             ESP_LOGI(TAG, "System message [%s]: %.128s", msg.chat_id, msg.content);
+            /* Broadcast system responses to the live log so they're visible */
+            char mon[200];
+            snprintf(mon, sizeof(mon), "[%.20s] %.160s", msg.chat_id, msg.content);
+            for (char *p = mon; *p; p++) if (*p == '\n' || *p == '\r') *p = ' ';
+            ws_server_broadcast_monitor("sys", mon);
         } else {
             ESP_LOGW(TAG, "Unknown channel: %s", msg.channel);
         }

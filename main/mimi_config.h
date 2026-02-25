@@ -99,6 +99,9 @@
 #define MIMI_HEARTBEAT_FILE          "/spiffs/HEARTBEAT.md"
 #define MIMI_HEARTBEAT_INTERVAL_MS   (30 * 60 * 1000)
 
+/* Web Search */
+#define MIMI_TAVILY_BUF_SIZE         (16 * 1024)
+
 /* Skills */
 #define MIMI_SKILLS_PREFIX           "/spiffs/skills/"
 
