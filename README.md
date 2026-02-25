@@ -35,7 +35,7 @@ Tested on: ESP32-C6FH4 (revision v0.2).
 - **Web console** on port 80 — live activity log, file editors, skills manager, memory monitor
 - **Chat input** in Live Log — send messages directly from the browser without leaving the log view
 - **LLM providers** — Anthropic (Claude), OpenRouter (300+ models), or any OpenAI-compatible endpoint
-- **Tool use** — web search (Tavily or Brave Search API), read/write/edit SPIFFS files, cron scheduling, generic HTTPS requests, Gmail SMTP email
+- **Tool use** — web search (Tavily or Brave Search API), read/write/edit SPIFFS files, cron scheduling, generic HTTPS requests, Gmail SMTP email, chip temperature, SPIFFS grep, device health
 - **Skills system** — teach the bot new capabilities via Markdown files; create/edit/delete from the browser
 - **Session memory** — per-chat conversation history stored in SPIFFS
 - **Long-term memory** — persistent MEMORY.md updated by the agent over time
@@ -266,6 +266,42 @@ to_address: you@gmail.com
 ```
 
 Generate an App Password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (requires 2-Step Verification). Then ask C6PO: *"send me a test email"*.
+
+---
+
+## Tools: device_temp, search_files, system_info
+
+### device_temp
+Reads the ESP32-C6's internal temperature sensor and returns the chip temperature in Celsius. No external hardware required.
+
+```
+Ask: "What is your temperature?"
+→ Device temperature: 42.3°C (ESP32-C6 internal sensor)
+```
+
+### search_files
+Case-insensitive grep across all SPIFFS files — searches memory, daily notes, and skills without reading each file individually. Supports an optional path prefix to limit scope.
+
+```
+Ask: "Search my notes for flight"
+→ /spiffs/memory/2026-02-20.md:3: - BA2490 booked, departs 07:10
+```
+
+- Results capped at 20 matches
+- Lines truncated to 120 characters
+- Skips `console/` and `sessions/` (too large / not useful)
+
+### system_info
+Returns live device health: free heap, SPIFFS usage, uptime, WiFi RSSI, and firmware version. Useful for self-diagnostics and daily briefings.
+
+```
+Ask: "Check your health"
+→ Free heap: 221480 bytes (min: 201320)
+  SPIFFS: 57344 / 1798144 bytes used (3%)
+  Uptime: 4h 12m
+  WiFi RSSI: -61 dBm
+  Firmware: 6288bad (built Feb 24 2026 13:44:00)
+```
 
 ---
 

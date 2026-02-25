@@ -5,6 +5,9 @@
 #include "tools/tool_cron.h"
 #include "tools/tool_http.h"
 #include "tools/tool_smtp.h"
+#include "tools/tool_device_temp.h"
+#include "tools/tool_search_files.h"
+#include "tools/tool_system_info.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -12,7 +15,7 @@
 
 static const char *TAG = "tools";
 
-#define MAX_TOOLS 14
+#define MAX_TOOLS 17
 
 static mimi_tool_t s_tools[MAX_TOOLS];
 static int s_tool_count = 0;
@@ -194,6 +197,39 @@ esp_err_t tool_registry_init(void)
         .execute = tool_smtp_execute,
     };
     register_tool(&se);
+
+    /* Register device_temp */
+    mimi_tool_t dt = {
+        .name = "device_temp",
+        .description = "Read the ESP32-C6 internal chip temperature in Celsius. Useful for device health monitoring.",
+        .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+        .execute = tool_device_temp_execute,
+    };
+    register_tool(&dt);
+
+    /* Register search_files */
+    mimi_tool_t sf = {
+        .name = "search_files",
+        .description = "Search SPIFFS files for text (case-insensitive). Returns matching lines with filename and line number. Use to find content across memory, notes, and skills.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{"
+            "\"pattern\":{\"type\":\"string\",\"description\":\"Text to search for (case-insensitive)\"},"
+            "\"prefix\":{\"type\":\"string\",\"description\":\"Optional path prefix to limit search, e.g. /spiffs/memory/\"}"
+            "},"
+            "\"required\":[\"pattern\"]}",
+        .execute = tool_search_files_execute,
+    };
+    register_tool(&sf);
+
+    /* Register system_info */
+    mimi_tool_t si = {
+        .name = "system_info",
+        .description = "Get live device status: free heap, SPIFFS usage, uptime, WiFi signal strength, and firmware version. Use to check device health.",
+        .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+        .execute = tool_system_info_execute,
+    };
+    register_tool(&si);
 
     /* Register http_request */
     mimi_tool_t hr = {

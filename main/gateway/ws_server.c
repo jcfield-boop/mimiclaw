@@ -580,7 +580,7 @@ static esp_err_t config_post_handler(httpd_req_t *req)
     }
 
     cJSON *verbose = cJSON_GetObjectItem(root, "verbose_logs");
-    if (verbose && cJSON_IsBool(verbose)) {
+    if (verbose != NULL) {
         s_verbose_logs = cJSON_IsTrue(verbose);
         nvs_handle_t nvs;
         if (nvs_open(WS_NVS_NAMESPACE, NVS_READWRITE, &nvs) == ESP_OK) {
