@@ -169,23 +169,14 @@ static esp_err_t ws_handler(httpd_req_t *req)
 
 /* ── HTTP console handler (GET /) ─────────────────────────────────────────── */
 
+extern const char index_html_start[] asm("_binary_index_html_start");
+extern const char index_html_end[]   asm("_binary_index_html_end");
+
 static esp_err_t console_get_handler(httpd_req_t *req)
 {
-    FILE *f = fopen("/spiffs/console/index.html", "r");
-    if (!f) {
-        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND,
-                            "Console not found. Ensure index.html is in SPIFFS.");
-        return ESP_OK;
-    }
-
     httpd_resp_set_type(req, "text/html; charset=utf-8");
-    char buf[512];
-    size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
-        if (httpd_resp_send_chunk(req, buf, (ssize_t)n) != ESP_OK) break;
-    }
-    fclose(f);
-    httpd_resp_send_chunk(req, NULL, 0);
+    httpd_resp_send(req, index_html_start,
+                    (ssize_t)(index_html_end - index_html_start));
     return ESP_OK;
 }
 
