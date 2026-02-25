@@ -239,6 +239,20 @@ The key is stored in NVS and survives firmware updates. If no key is set, the `w
 
 ---
 
+## Credential Storage
+
+Service credentials (email API keys, flight tracker tokens, etc.) are stored in `/spiffs/config/SERVICES.md` — a plain Markdown file on SPIFFS. The agent reads it only when a skill requires it and is instructed never to quote or repeat any credential value in a response.
+
+To set up credentials, ask C6PO via Telegram:
+
+> "Create /spiffs/config/SERVICES.md with my Mailjet credentials: api_key abc123, from me@example.com"
+
+The file survives `app-flash` updates. A template with common sections (Email, Flights, Custom) is provided at `spiffs_data/config/SERVICES.md` in the repo.
+
+> **Security note:** Credentials are stored as plaintext in SPIFFS flash. For a personal device on a trusted network this is acceptable — use app-specific passwords or service API tokens rather than primary account passwords, so any leaked key can be revoked independently.
+
+---
+
 ## Skills
 
 Skills are Markdown files at `/spiffs/skills/<name>.md`. The agent reads them as part of its system prompt so it knows what capabilities are available and how to use them.
@@ -267,6 +281,7 @@ C6PO automatically manages its storage to stay within the 1.9 MB SPIFFS limit:
 | File | Behaviour |
 |---|---|
 | `SOUL.md`, `USER.md`, `HEARTBEAT.md` | Survive `app-flash` updates; only created from defaults on first boot |
+| `SERVICES.md` | Third-party service credentials (email, flight APIs, etc.) — read by the agent only when a skill requires it; never quoted in responses |
 | `MEMORY.md` | The device's long-term brain — survives power cycles and `app-flash`; **erased by full `idf.py flash`** |
 | `memory/YYYY-MM-DD.md` | Daily notes — survive power cycles; older than 7 days deleted on boot |
 | Sessions (`sessions/*.json`) | Each chat capped at 15 messages; use `session_clear <id>` to reset |
