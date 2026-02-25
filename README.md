@@ -49,14 +49,17 @@ Tested on: ESP32-C6FH4 (revision v0.2).
 
 Browse to `http://<device-ip>` after it connects to WiFi (the IP is printed in the boot log).
 
+> The web console is embedded directly in the firmware binary, so `app-flash` always delivers the latest UI without touching SPIFFS.
+
 | Tab | Description |
 |---|---|
 | **Live Log** | Real-time stream of LLM calls, tool results, errors, and responses. Shows token counts, the actual model selected (useful with `openrouter/auto`), iteration counter per agent turn, and full tool call arguments (e.g. `read_file {"path":"/spiffs/memory/MEMORY.md"}`). Capped at 250 entries; use the ✕ button to clear. **Chat input bar** at the bottom lets you send messages directly from the browser. |
 | **SOUL.md** | The bot's personality and values |
 | **USER.md** | Notes about you — the bot reads this on every turn |
 | **MEMORY.md** | Long-term memory written by the bot itself (auto-trimmed to 3 KB) |
+| **HEARTBEAT.md** | Recurring task list — the bot checks this on a timer and acts on unchecked `- [ ]` items only |
+| **SERVICES.md** | Third-party service credentials (email, flight APIs, etc.) — readable and editable from the browser |
 | **Skills** | List, create, edit, and delete skill files |
-| **HEARTBEAT.md** | Recurring task list — the bot checks this on a timer and acts on uncompleted items |
 | **Settings** | Set LLM provider/model/API key, Web Search API key (Tavily or Brave), and **Verbose Logs** toggle from the browser |
 
 The header shows live free heap, SPIFFS usage, and session token counts (with cost estimate if using OpenRouter), refreshed every 15 seconds.
