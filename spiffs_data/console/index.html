@@ -182,6 +182,9 @@ function connect(){
   };
 }
 
+/* ── WebSocket keepalive ping (prevents NAT/router idle timeout) ── */
+setInterval(function(){if(ws&&ws.readyState===1){try{ws.send('{"type":"ping"}');}catch(e){}}},25000);
+
 function ts(){var n=new Date();return pad(n.getHours())+':'+pad(n.getMinutes())+':'+pad(n.getSeconds())}
 function pad(n){return n<10?'0'+n:n}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}

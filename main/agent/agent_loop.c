@@ -13,6 +13,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_system.h"
 #include "cJSON.h"
 
 static const char *TAG = "agent";
@@ -253,6 +254,7 @@ static void agent_loop_task(void *arg)
         int iteration = 0;
         bool sent_working_status = false;
         bool recovery_tried = false;
+        bool oom_restart = false;
 
         while (iteration < MIMI_AGENT_MAX_TOOL_ITER) {
             /* Send "working" indicator before each API call */
@@ -286,6 +288,7 @@ static void agent_loop_task(void *arg)
                 snprintf(emsg, sizeof(emsg), "LLM call failed: %s", esp_err_to_name(err));
                 ESP_LOGE(TAG, "%s", emsg);
                 ws_server_broadcast_monitor("error", emsg);
+                if (err == ESP_ERR_NO_MEM) { oom_restart = true; }
                 break;
             }
 
@@ -377,7 +380,9 @@ static void agent_loop_task(void *arg)
             mimi_msg_t out = {0};
             strncpy(out.channel, msg.channel, sizeof(out.channel) - 1);
             strncpy(out.chat_id, msg.chat_id, sizeof(out.chat_id) - 1);
-            out.content = strdup("Sorry, I encountered an error.");
+            out.content = strdup(oom_restart
+                ? "Memory exhausted \xe2\x80\x94 restarting..."
+                : "Sorry, I encountered an error.");
             if (out.content) {
                 if (message_bus_push_outbound(&out) != ESP_OK) {
                     ESP_LOGW(TAG, "Outbound queue full, drop error response");
@@ -388,6 +393,13 @@ static void agent_loop_task(void *arg)
 
         /* Free inbound message content */
         free(msg.content);
+
+        /* OOM recovery: give outbound task time to dispatch the error reply, then restart */
+        if (oom_restart) {
+            ws_server_broadcast_monitor("system", "OOM restart in 3s...");
+            vTaskDelay(pdMS_TO_TICKS(3000));
+            esp_restart();
+        }
 
         /* Log memory status */
         ESP_LOGI(TAG, "Free PSRAM: %d bytes",
