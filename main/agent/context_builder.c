@@ -72,7 +72,11 @@ esp_err_t context_build_system_prompt(char *buf, size_t size)
         "- Use write_file with append=true to add to daily notes (creates file if missing).\n"
         "- Use get_current_time to get today's date before writing daily notes.\n\n"
         "## Skills\n"
-        "Skills are Markdown files in /spiffs/skills/. Read the skill file for full instructions.\n"
+        "Skills define the REQUIRED steps and delivery format for specific topics.\n"
+        "When a user request matches a skill by topic, you MUST call read_file to load\n"
+        "the full skill instructions before taking any other action — do not improvise\n"
+        "from the summary alone. Skills may specify delivery via email or other channels\n"
+        "regardless of how the request arrived; follow those delivery instructions exactly.\n"
         "Create new skills with write_file to /spiffs/skills/<name>.md.\n");
 
     /* Bootstrap files */
@@ -97,7 +101,7 @@ esp_err_t context_build_system_prompt(char *buf, size_t size)
     if (skills_len > 0) {
         off += snprintf(buf + off, size - off,
             "\n## Available Skills\n\n"
-            "Available skills (use read_file to load full instructions):\n%s\n",
+            "REQUIRED: call read_file before acting on any matching request:\n%s\n",
             skills_buf);
     }
 
