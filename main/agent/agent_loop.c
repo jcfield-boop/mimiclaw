@@ -6,6 +6,7 @@
 #include "memory/session_mgr.h"
 #include "tools/tool_registry.h"
 #include "gateway/ws_server.h"
+#include "led/led_status.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -160,6 +161,7 @@ static cJSON *build_tool_results(const llm_response_t *resp, const mimi_msg_t *m
             for (char *p = tool_mon; *p; p++) if (*p == '\n' || *p == '\r') *p = ' ';
             ws_server_broadcast_monitor("tool", tool_mon);
         }
+        led_set_state(LED_TOOL);
         tool_registry_execute(call->name, tool_input, tool_output, tool_output_size);
         free(patched_input);
 
@@ -279,6 +281,7 @@ static void agent_loop_task(void *arg)
                 char itermsg[48];
                 snprintf(itermsg, sizeof(itermsg), "calling LLM (iter %d)...", iteration + 1);
                 ws_server_broadcast_monitor("llm", itermsg);
+                led_set_state(LED_THINKING);
             }
             llm_response_t resp;
             err = llm_chat_tools(system_prompt, messages, tools_json, &resp);
@@ -367,6 +370,7 @@ static void agent_loop_task(void *arg)
             ESP_LOGI(TAG, "Queue final response to %s:%s (%d bytes)",
                      out.channel, out.chat_id, (int)strlen(final_text));
             ws_server_broadcast_monitor("done", out.chat_id);
+            led_set_state(LED_IDLE);
             if (message_bus_push_outbound(&out) != ESP_OK) {
                 ESP_LOGW(TAG, "Outbound queue full, drop final response");
                 free(final_text);
@@ -396,6 +400,7 @@ static void agent_loop_task(void *arg)
 
         /* OOM recovery: give outbound task time to dispatch the error reply, then restart */
         if (oom_restart) {
+            led_set_state(LED_OOM);
             ws_server_broadcast_monitor("system", "OOM restart in 3s...");
             vTaskDelay(pdMS_TO_TICKS(3000));
             esp_restart();

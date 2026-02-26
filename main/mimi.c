@@ -30,6 +30,7 @@
 #include "buttons/button_driver.h"
 #include "imu/imu_manager.h"
 #include "skills/skill_loader.h"
+#include "led/led_status.h"
 
 static const char *TAG = "mimi";
 
@@ -203,6 +204,10 @@ void app_main(void)
     imu_manager_set_shake_callback(NULL);
 #endif
 
+    /* LED: init first so it glows during the rest of boot */
+    led_status_init();
+    led_set_state(LED_BOOT);
+
     /* Phase 1: Core infrastructure */
     ESP_ERROR_CHECK(init_nvs());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -227,6 +232,7 @@ void app_main(void)
     ESP_ERROR_CHECK(serial_cli_init());
 
     /* Start WiFi */
+    led_set_state(LED_WIFI_CONNECTING);
     esp_err_t wifi_err = wifi_manager_start();
     if (wifi_err == ESP_OK) {
         ESP_LOGI(TAG, "Scanning nearby APs on boot...");
@@ -234,6 +240,7 @@ void app_main(void)
         ESP_LOGI(TAG, "Waiting for WiFi connection...");
         if (wifi_manager_wait_connected(30000) == ESP_OK) {
             ESP_LOGI(TAG, "WiFi connected: %s", wifi_manager_get_ip());
+            led_set_state(LED_IDLE);
 
             /* Sync system clock via SNTP before any TLS connections.
              * Multiple servers tried; if UDP/123 is blocked, fall back

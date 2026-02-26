@@ -3,6 +3,7 @@
 #include "bus/message_bus.h"
 #include "proxy/http_proxy.h"
 #include "gateway/ws_server.h"
+#include "led/led_status.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -371,6 +372,7 @@ static void process_updates(const char *json_str)
         strncpy(msg.chat_id, chat_id_str, sizeof(msg.chat_id) - 1);
         msg.content = strdup(text->valuestring);
         if (msg.content) {
+            led_flash_overlay(LED_TELEGRAM_RX);
             if (message_bus_push_inbound(&msg) != ESP_OK) {
                 ESP_LOGW(TAG, "Inbound queue full, drop telegram message");
                 free(msg.content);

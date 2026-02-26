@@ -1,6 +1,7 @@
 #include "wifi_manager.h"
 #include "mimi_config.h"
 #include "gateway/ws_server.h"
+#include "led/led_status.h"
 
 #include <string.h>
 #include <inttypes.h>
@@ -46,6 +47,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             ESP_LOGW(TAG, "Disconnected (reason=%d:%s)", disc->reason, wifi_reason_to_str(disc->reason));
         }
         ws_server_broadcast_monitor("error", "WiFi disconnected");
+        led_set_state(LED_WIFI_LOST);
         if (s_retry_count < MIMI_WIFI_MAX_RETRY) {
             /* Exponential backoff: 1s, 2s, 4s, 8s, ... capped at 30s */
             uint32_t delay_ms = MIMI_WIFI_RETRY_BASE_MS << s_retry_count;
@@ -58,6 +60,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             snprintf(retry_msg, sizeof(retry_msg), "WiFi retry %d/%d",
                      s_retry_count + 1, MIMI_WIFI_MAX_RETRY);
             ws_server_broadcast_monitor("ws", retry_msg);
+            led_set_state(LED_WIFI_CONNECTING);
             vTaskDelay(pdMS_TO_TICKS(delay_ms));
             esp_wifi_connect();
             s_retry_count++;
@@ -80,6 +83,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         snprintf(vmsg, sizeof(vmsg), "WiFi IP: " IPSTR, IP2STR(&event->ip_info.ip));
         ws_server_broadcast_monitor_verbose("wifi", vmsg);
 
+        led_set_state(LED_IDLE);
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
     }
 }

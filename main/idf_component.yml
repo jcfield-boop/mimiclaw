@@ -3,6 +3,9 @@ dependencies:
   ## Required IDF version
   idf:
     version: '>=5.5.0,<7.0.0'
+  ## WS2812 LED strip driver (for GPIO8 RGB LED on Super Mini)
+  espressif/led_strip:
+    version: ">=2.0.0"
   # # Put list of dependencies here
   # # For components maintained by Espressif:
   # component: "~1.0.0"

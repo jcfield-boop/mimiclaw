@@ -1,5 +1,6 @@
 #include "tool_smtp.h"
 #include "gateway/ws_server.h"
+#include "led/led_status.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -275,6 +276,7 @@ esp_err_t tool_smtp_execute(const char *input_json, char *output, size_t output_
     snprintf(output, output_size, "OK: email sent to %s", creds.to_addr);
     ESP_LOGI(TAG, "Email sent to %s", creds.to_addr);
     ws_server_broadcast_monitor("email", "Email sent OK");
+    led_flash_overlay(LED_EMAIL);
 
 smtp_done:
     cJSON_Delete(input);
