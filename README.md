@@ -21,11 +21,18 @@ C6PO connects to Telegram and a browser-based web console, calls an LLM (Claude,
 
 | | |
 |---|---|
-| **Board** | ESP32-C6 (4MB flash) |
+| **Board** | ESP32-C6 Super Mini (23 × 17.8 mm, 4MB flash) |
 | **PSRAM** | Not required |
 | **WiFi** | 2.4 GHz (802.11ax / WiFi 6) |
+| **Status LED** | WS2812 RGB on GPIO8 — breathing animations per state |
 
 Tested on: ESP32-C6FH4 (revision v0.2).
+
+### 3D Print Case
+
+`hardware/c6po_shrimp_case.scad` — a 🦐 shrimp-shaped enclosure for the ESP32-C6 Super Mini.
+Open in OpenSCAD, press **F6** to render, then **File › Export as STL**.
+Print flat base down, no supports. USB-C slot at the head end.
 
 ---
 
@@ -40,6 +47,7 @@ Tested on: ESP32-C6FH4 (revision v0.2).
 - **Session memory** — per-chat conversation history stored in SPIFFS
 - **Long-term memory** — persistent MEMORY.md updated by the agent over time
 - **Cron / heartbeat** — schedule recurring tasks and daily briefings
+- **RGB status LED** — WS2812 on GPIO8 indicates boot, WiFi, thinking, tool use, Telegram/email activity, error, and OOM states
 - **Verbose Logs** — toggle extra diagnostics (WiFi IP, full Telegram text, LLM heap/size) in Settings; persisted in NVS
 - **Serial CLI** — configure everything over USB without reflashing
 

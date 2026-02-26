@@ -1,163 +1,244 @@
 // =============================================================
-//  🦐  C6PO Shrimp Case
-//  ESP32-C6 Super Mini enclosure
+//  🦐  C6PO Shrimp Case  v2  —  emoji-accurate
+//  ESP32-C6 Super Mini (23 × 17.8 mm)
 // =============================================================
-//  Board:   23 × 17.8 mm, ~7 mm tall (PCB 4.32 mm + module/USB-C)
-//  USB-C:   centred on the short anterior (head) end
-//  Print:   flat base down — zero supports needed
-//  Slicer:  0.2 mm layers, 3 perimeters, 20 % infill
-//  Fit:     board press-fits in from the open bottom
+//  The shrimp lays on its side just like the 🦐 emoji:
+//    • C-curved body (dorsal arc = back, concave belly inside)
+//    • Long rostrum pointing forward from the head
+//    • Segmented carapace with raised ridges
+//    • Wide tail fan (telson + uropods) at the rear
+//    • Walking legs on the ventral (belly) side
+//    • Paired antennae from the forehead
+//    • USB-C slot cut through the rostrum/head end
+//    • Board cavity open at the flat base (press-fit)
+//
+//  Print: flat base down, no supports.
+//  Open in OpenSCAD → F6 → File › Export as STL
 // =============================================================
 
 $fn = 64;
 
-// ── Board dimensions (Super Mini with clearance) ───────────
-BRD_L  = 23.5;   // board length  (X — USB-C end is at +X)
-BRD_W  = 18.3;   // board width   (Y)
-BRD_H  =  7.5;   // board + tallest component (module + USB-C)
+// ── Board (ESP32-C6 Super Mini) ───────────────────────────
+BRD_L  = 23.5;   // board length (USB-C end = head = +X)
+BRD_W  = 18.3;   // board width
+BRD_H  =  7.5;   // board + tallest component height
+WALL   =  2.0;   // shell wall
+FLOOR  =  1.6;   // base floor
 
-// ── Shell geometry ─────────────────────────────────────────
-WALL   = 2.0;    // side wall thickness
-FLOOR  = 1.6;    // base floor thickness
+USBC_W =  9.5;   // USB-C slot width
+USBC_H =  3.8;   // USB-C slot height
+USBC_Z =  2.8;   // slot centre above floor
 
-// ── USB-C cutout (centred on head face, per IPC standard) ──
-USBC_W = 9.5;    // slot width
-USBC_H = 3.8;    // slot height
-USBC_Z = 2.8;    // slot centre height above floor
+// ── Derived shell box ─────────────────────────────────────
+EXT_L  = BRD_L + WALL * 2;       // 27.5 mm
+EXT_W  = BRD_W + WALL * 2;       // 22.3 mm
+EXT_H  = BRD_H + FLOOR;          //  9.1 mm
 
-// ── Shrimp body proportions ────────────────────────────────
-HEAD   = 14;     // rostrum extension beyond board front (USB-C side)
-TAIL   = 18;     // abdomen/tail extension beyond board rear
+// ── Body curve arc (the C-shape) ─────────────────────────
+//   Arc is in the XY plane (top view), centred at [ACX, ACY].
+//   OUTER_R = dorsal (back) of shrimp.
+//   INNER_R = ventral (belly) / concave side.
+//   Arc sweeps ANG1 → ANG2 degrees.
+//   Head = high angle (ANG2), Tail = low angle (ANG1).
 
-// ── Derived: rectangular shell footprint ───────────────────
-EXT_L  = BRD_L + WALL * 2;
-EXT_W  = BRD_W + WALL * 2;
-EXT_H  = BRD_H + FLOOR;
+ACX      =  0;
+ACY      =  0;
+OUTER_R  = 34;   // back of shrimp
+INNER_R  = 13;   // belly of shrimp
+ANG1     = 20;   // tail end angle (°)
+ANG2     = 140;  // head end angle (°)
+N        = 32;   // polygon smoothness
 
-// Convenience centres of the rectangular section
-CX     = EXT_L / 2;
-CY     = EXT_W / 2;
+// ── Helper: 2D shrimp crescent outline ───────────────────
+//   Outer arc + pointed ends + inner arc = emoji silhouette
+module shrimp_2d_body() {
+    outer = [for (i = [0 : N])
+                let(a = ANG1 + (ANG2 - ANG1) * i / N)
+                [ACX + OUTER_R * cos(a), ACY + OUTER_R * sin(a)]];
 
-// =============================================================
-//  MODULES
-// =============================================================
+    inner = [for (i = [0 : N])
+                let(a = ANG2 - (ANG2 - ANG1) * i / N)
+                [ACX + INNER_R * cos(a), ACY + INNER_R * sin(a)]];
 
-// ── 1. Main body (carapace + curved abdomen) ───────────────
-//   Oriented: USB-C/head at +X, tail at -X, flat bottom at Z=0
-module body_shell() {
+    // Taper the two ends to a point by using the arc midpoints
+    // Head tip: between outer & inner at ANG2
+    head_tip = [(OUTER_R + INNER_R) / 2 * cos(ANG2),
+                (OUTER_R + INNER_R) / 2 * sin(ANG2)];
+
+    // Tail tip: between outer & inner at ANG1
+    tail_tip = [(OUTER_R + INNER_R) / 2 * cos(ANG1),
+                (OUTER_R + INNER_R) / 2 * sin(ANG1)];
+
+    polygon(concat(
+        [outer[0]],        // start at tail outer
+        outer,             // sweep outer arc to head
+        [head_tip],        // pointed head
+        inner,             // inner arc back to tail
+        [tail_tip]         // pointed tail
+    ));
+}
+
+// ── 2D → 3D body shell (slightly domed top using hull) ───
+module body_3d() {
     hull() {
-        // Thorax — widest, tallest, over the board
-        translate([CX, CY, EXT_H * 0.55])
-            scale([0.85, 1.0, 0.95]) sphere(r = EXT_W * 0.52);
-
-        // Anterior shoulder (narrows toward head)
-        translate([EXT_L * 0.88, CY, EXT_H * 0.46])
-            scale([1.0, 0.62, 0.72]) sphere(r = EXT_W * 0.34);
-
-        // Head tip (just behind rostrum base)
-        translate([EXT_L + HEAD * 0.38, CY, EXT_H * 0.38])
-            scale([1.0, 0.38, 0.52]) sphere(r = EXT_W * 0.22);
-
-        // Posterior — abdomen begins to curve downward
-        translate([EXT_L * 0.12, CY, EXT_H * 0.42])
-            scale([1.0, 0.72, 0.65]) sphere(r = EXT_W * 0.40);
-
-        // Tail base — lower and narrower
-        translate([-TAIL * 0.35, CY, EXT_H * 0.26])
-            scale([1.0, 0.50, 0.42]) sphere(r = EXT_W * 0.28);
-
-        // Tail tip — close to the bed
-        translate([-TAIL * 0.80, CY, EXT_H * 0.14])
-            scale([1.0, 0.32, 0.28]) sphere(r = EXT_W * 0.16);
+        // Base footprint (full width)
+        linear_extrude(0.1)
+            offset(r = 0)
+                shrimp_2d_body();
+        // Top face slightly inset and raised — creates dome
+        translate([0, 0, EXT_H])
+            linear_extrude(0.1)
+                offset(r = -2)
+                    shrimp_2d_body();
     }
 }
 
-// ── 2. Rostrum (forward horn, angled slightly upward) ──────
+// ── Rostrum ───────────────────────────────────────────────
+//   Long pointed horn from the head. In the emoji it's the
+//   prominent spike pointing forward-upward.
 module rostrum() {
+    // Base of rostrum at the head end of the body arc
+    base_x = (OUTER_R + 2) * cos(ANG2);
+    base_y = (OUTER_R + 2) * sin(ANG2);
+    tip_x  = base_x + 22 * cos(ANG2);
+    tip_y  = base_y + 22 * sin(ANG2);
+
     hull() {
-        translate([EXT_L + HEAD * 0.30, CY, EXT_H * 0.72])
-            sphere(r = 2.2);
-        translate([EXT_L + HEAD * 1.30, CY, EXT_H * 0.88])
-            sphere(r = 0.7);
+        translate([base_x, base_y, EXT_H * 0.72])
+            sphere(r = 2.8);
+        translate([tip_x, tip_y, EXT_H * 0.82])
+            sphere(r = 0.6);
     }
 }
 
-// ── 3. Tail fan (telson + two uropods) ────────────────────
+// ── Tail fan ──────────────────────────────────────────────
+//   Telson (central spike) + 2 uropods (side blades).
+//   Positioned at the tail end of the arc.
 module tail_fan() {
-    bx = -TAIL * 0.72;
-    bz = EXT_H * 0.13;
+    tx = (OUTER_R - 4) * cos(ANG1);
+    ty = (OUTER_R - 4) * sin(ANG1);
+    tz = EXT_H * 0.18;
+    // Direction: tangent at ANG1, pointing away from body
+    tang_a = ANG1 - 90;
 
-    // Telson (central spine)
+    // Telson (central blade)
     hull() {
-        translate([bx,      CY,      bz     ]) sphere(r = 2.5);
-        translate([bx - 9,  CY,      bz - 2 ]) sphere(r = 1.0);
+        translate([tx, ty, tz]) sphere(r = 3.0);
+        translate([tx + 12 * cos(tang_a),
+                   ty + 12 * sin(tang_a), tz - 2]) sphere(r = 1.0);
     }
     // Left uropod
     hull() {
-        translate([bx + 2,  CY,      bz     ]) sphere(r = 2.2);
-        translate([bx - 6,  CY - 7,  bz - 1 ]) sphere(r = 0.8);
+        translate([tx, ty, tz]) sphere(r = 2.6);
+        translate([tx + 9 * cos(tang_a + 22),
+                   ty + 9 * sin(tang_a + 22), tz - 1]) sphere(r = 0.9);
     }
     // Right uropod
     hull() {
-        translate([bx + 2,  CY,      bz     ]) sphere(r = 2.2);
-        translate([bx - 6,  CY + 7,  bz - 1 ]) sphere(r = 0.8);
+        translate([tx, ty, tz]) sphere(r = 2.6);
+        translate([tx + 9 * cos(tang_a - 22),
+                   ty + 9 * sin(tang_a - 22), tz - 1]) sphere(r = 0.9);
     }
 }
 
-// ── 4. Antennae (pair from forehead) ──────────────────────
-//   Minimum 1.5 mm diameter — printable on FDM with 0.4 mm nozzle
-module antennae() {
-    nx = EXT_L + HEAD * 0.55;
-    nz = EXT_H * 0.76;
-    L  = 32;
-
-    hull() {
-        translate([nx,     CY + 3.5, nz    ]) sphere(r = 1.4);
-        translate([nx + L, CY + 8,   nz + 5]) sphere(r = 0.9);
-    }
-    hull() {
-        translate([nx,     CY - 3.5, nz    ]) sphere(r = 1.4);
-        translate([nx + L, CY - 8,   nz + 5]) sphere(r = 0.9);
-    }
-}
-
-// ── 5. Carapace segment grooves (decorative ridges) ────────
+// ── Carapace segments ─────────────────────────────────────
+//   Raised ridges running perpendicular to the body arc —
+//   the most recognisable feature of the 🦐 emoji.
+//   Cut from the solid body using difference().
 module segment_grooves() {
-    n = 6;
-    for (i = [1 : n]) {
-        x = i * (EXT_L / (n + 1));
-        translate([x, CY, EXT_H * 0.28])
-            rotate([90, 0, 6])        // slight diagonal, like real shrimp
-                cylinder(r = 0.75, h = EXT_W + 6, center = true);
+    seg_n = 7;
+    for (i = [0 : seg_n - 1]) {
+        // Step evenly along the arc
+        a = ANG1 + (ANG2 - ANG1) * (i + 0.5) / seg_n;
+        // Point on the outer arc
+        px = ACX + (OUTER_R - 1) * cos(a);
+        py = ACY + (OUTER_R - 1) * sin(a);
+        // Normal to arc = radial direction; groove runs perpendicular
+        groove_a = a + 90;   // tangent direction
+        translate([px, py, -1])
+            rotate([0, 0, groove_a])
+                // thin wall that cuts across the body
+                cube([1.4, (OUTER_R - INNER_R) * 2, EXT_H + 4], center = true);
     }
 }
 
-// ── 6. Board cavity (open at Z=0 bottom, board presses in) ─
-module board_cavity() {
-    translate([WALL, WALL, FLOOR])
-        cube([BRD_L, BRD_W, BRD_H + 1]);  // +1 open-top clearance
-}
+// ── Walking legs ──────────────────────────────────────────
+//   3 pairs of small nubs on the ventral (inner/belly) side.
+//   Purely decorative — makes it look like the emoji.
+module walking_legs() {
+    leg_n = 3;
+    for (i = [0 : leg_n - 1]) {
+        a = ANG1 + (ANG2 - ANG1) * (0.25 + i * 0.2);
+        bx = ACX + (INNER_R - 0.5) * cos(a);
+        by = ACY + (INNER_R - 0.5) * sin(a);
+        bz = 0.5;
+        leg_dir = a - 90;   // points away from body into belly
+        leg_len = 7 + i * 1;
 
-// ── 7. USB-C rounded-rectangle cutout ─────────────────────
-//   Punched through the anterior (head) end wall
-module usbc_hole() {
-    r = USBC_H / 2;
-    // Position at the head end wall (X = EXT_L), centred on width and height
-    translate([EXT_L - 0.5, CY, USBC_Z])
-        rotate([0, 90, 0])
+        // Leg pair: slightly spread left and right of the tangent
+        for (spread = [-18, 18]) {
             hull() {
-                translate([ (USBC_W/2 - r), 0, 0])
-                    cylinder(r = r, h = WALL + HEAD + 2, center = false);
-                translate([-(USBC_W/2 - r), 0, 0])
-                    cylinder(r = r, h = WALL + HEAD + 2, center = false);
+                translate([bx, by, bz]) sphere(r = 1.5);
+                translate([bx + leg_len * cos(leg_dir + spread),
+                           by + leg_len * sin(leg_dir + spread),
+                           bz - 1.0]) sphere(r = 0.6);
             }
+        }
+    }
 }
 
-// ── 8. Optional: small LED window on top ──────────────────
-//   ~2 mm slot above the onboard blue LED (near USB-C end)
-module led_slot() {
-    translate([EXT_L - 4, CY, EXT_H + 0.5])
-        cube([3, 2.5, 4], center = true);
+// ── Antennae ──────────────────────────────────────────────
+//   Two long thin feelers from the forehead, like the emoji.
+module antennae() {
+    hx = (OUTER_R + 1) * cos(ANG2);
+    hy = (OUTER_R + 1) * sin(ANG2);
+    hz = EXT_H * 0.78;
+    // Antennae trail backwards along the dorsal side
+    ant_dir = ANG2 + 160;
+    for (spread = [-12, 12]) {
+        hull() {
+            translate([hx, hy, hz]) sphere(r = 1.2);
+            translate([hx + 30 * cos(ant_dir + spread),
+                       hy + 30 * sin(ant_dir + spread),
+                       hz + 3]) sphere(r = 0.5);
+        }
+    }
+}
+
+// ── Board cavity ──────────────────────────────────────────
+//   Straight rectangular pocket; board press-fits in from below.
+//   Positioned so the USB-C end aligns with the head of the arc.
+module board_cavity() {
+    // Head is near ANG2; place cavity with USB-C end toward head
+    // Centre the cavity roughly in the middle of the crescent body
+    arc_mid_a = (ANG1 + ANG2) / 2;
+    // Place cavity so its USB-C end (+X) points toward ANG2
+    cx = ACX + (OUTER_R + INNER_R) / 2 * cos(arc_mid_a) - (BRD_L / 2) * cos(ANG2);
+    cy = ACY + (OUTER_R + INNER_R) / 2 * sin(arc_mid_a) - (BRD_L / 2) * sin(ANG2);
+
+    translate([cx, cy, FLOOR])
+        rotate([0, 0, ANG2])        // align long axis with head direction
+            cube([BRD_L, BRD_W, BRD_H + 1]);
+}
+
+// ── USB-C cutout ──────────────────────────────────────────
+//   Punched through the head wall toward the rostrum.
+module usbc_hole() {
+    // Head face centre
+    hx = ACX + (OUTER_R + INNER_R) / 2 * cos(ANG2);
+    hy = ACY + (OUTER_R + INNER_R) / 2 * sin(ANG2);
+    hz = USBC_Z;
+    r  = USBC_H / 2;
+
+    translate([hx, hy, hz])
+        rotate([0, 0, ANG2])
+            rotate([0, 90, 0])
+                hull() {
+                    translate([ (USBC_W/2 - r), 0, 0])
+                        cylinder(r = r, h = 16, center = true);
+                    translate([-(USBC_W/2 - r), 0, 0])
+                        cylinder(r = r, h = 16, center = true);
+                }
 }
 
 // =============================================================
@@ -165,39 +246,34 @@ module led_slot() {
 // =============================================================
 
 difference() {
-    // ── Outer form ─────────────────────────────────────────
     union() {
-        body_shell();
+        body_3d();
         rostrum();
         tail_fan();
         antennae();
+        walking_legs();
     }
 
-    // ── Subtractions ───────────────────────────────────────
-    board_cavity();     // hollow interior for the board
-    usbc_hole();        // USB-C power port
-    segment_grooves();  // decorative carapace segments
-    led_slot();         // LED visibility window
+    board_cavity();
+    usbc_hole();
+    segment_grooves();
 }
 
 // =============================================================
 //  NOTES
 // =============================================================
+//  Top-view shape matches the 🦐 emoji: C-curved crescent,
+//  rostrum at head, fan tail at rear, legs on belly side.
 //
-//  Orientation on print bed: flat base (Z=0) down. No supports.
+//  The board cavity is a straight rectangle inside the curved
+//  body. If the cavity clips an outer wall (visible as a hole
+//  in the side), increase WALL or reduce the cavity offset by
+//  editing the cx/cy calculation in board_cavity().
 //
-//  Board insertion: press the Super Mini in from the open bottom.
-//  The 0.5 mm wall-to-board gap gives a snug friction fit.
-//  A small dab of Blu-Tack on the floor keeps it from rattling.
+//  Adjust OUTER_R / INNER_R to make the body fatter or slimmer.
+//  Adjust ANG1 / ANG2 to change how much the body curves.
 //
-//  USB-C: the slot is at the head (rostrum) end.
-//  The cutout is generous — the cable will reach through easily.
+//  Antennae: 1.2 mm radius — print slow (25 mm/s) for the tips,
+//  or set sphere() $fn=16 to thicken them slightly.
 //
-//  Antennae are 1.4 mm radius (2.8 mm diameter) — printable at
-//  0.4 mm nozzle with 3+ perimeters. Print slowly (30 mm/s) for
-//  the tips. Skip if your printer struggles with thin features.
-//
-//  Adjust WALL/FLOOR for tighter/looser board fit.
-//  Adjust HEAD/TAIL for a chunkier or slimmer shrimp profile.
-//
-//  Render → Export as STL in OpenSCAD (F6 then File › Export).
+//  Render: F6 in OpenSCAD, then File › Export › Export as STL
