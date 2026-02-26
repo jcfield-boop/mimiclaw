@@ -83,26 +83,35 @@ esp_err_t context_build_system_prompt(char *buf, size_t size)
     off = append_file(buf, size, off, MIMI_SOUL_FILE, "Personality");
     off = append_file(buf, size, off, MIMI_USER_FILE, "User Info");
 
-    /* Long-term memory */
-    char mem_buf[4096];
-    if (memory_read_long_term(mem_buf, sizeof(mem_buf)) == ESP_OK && mem_buf[0]) {
-        off += snprintf(buf + off, size - off, "\n## Long-term Memory\n\n%s\n", mem_buf);
+    /* Skills — placed before memory so they always appear even when memory is large */
+    char *skills_buf = malloc(2048);
+    if (skills_buf) {
+        size_t skills_len = skill_loader_build_summary(skills_buf, 2048);
+        if (skills_len > 0) {
+            off += snprintf(buf + off, size - off,
+                "\n## Available Skills\n\n"
+                "REQUIRED: call read_file before acting on any matching request:\n%s\n",
+                skills_buf);
+        }
+        free(skills_buf);
+    }
+
+    /* Long-term memory — heap-allocated to avoid blowing the 16KB agent task stack */
+    char *mem_buf = malloc(4096);
+    if (mem_buf) {
+        if (memory_read_long_term(mem_buf, 4096) == ESP_OK && mem_buf[0]) {
+            off += snprintf(buf + off, size - off, "\n## Long-term Memory\n\n%s\n", mem_buf);
+        }
+        free(mem_buf);
     }
 
     /* Recent daily notes (last 3 days) */
-    char recent_buf[4096];
-    if (memory_read_recent(recent_buf, sizeof(recent_buf), 3) == ESP_OK && recent_buf[0]) {
-        off += snprintf(buf + off, size - off, "\n## Recent Notes\n\n%s\n", recent_buf);
-    }
-
-    /* Skills */
-    char skills_buf[2048];
-    size_t skills_len = skill_loader_build_summary(skills_buf, sizeof(skills_buf));
-    if (skills_len > 0) {
-        off += snprintf(buf + off, size - off,
-            "\n## Available Skills\n\n"
-            "REQUIRED: call read_file before acting on any matching request:\n%s\n",
-            skills_buf);
+    char *recent_buf = malloc(2048);
+    if (recent_buf) {
+        if (memory_read_recent(recent_buf, 2048, 3) == ESP_OK && recent_buf[0]) {
+            off += snprintf(buf + off, size - off, "\n## Recent Notes\n\n%s\n", recent_buf);
+        }
+        free(recent_buf);
     }
 
     ESP_LOGI(TAG, "System prompt built: %d bytes", (int)off);
