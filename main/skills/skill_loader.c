@@ -279,6 +279,43 @@ static void extract_description(FILE *f, char *out, size_t out_size)
     out[off] = '\0';
 }
 
+/**
+ * Scan from current file position for a "## When to use" section.
+ * Reads body lines (flattened) until the next ## section or EOF.
+ */
+static void extract_when_to_use(FILE *f, char *out, size_t out_size)
+{
+    char line[256];
+    bool in_section = false;
+    size_t off = 0;
+
+    while (fgets(line, sizeof(line), f) && off < out_size - 1) {
+        size_t len = strlen(line);
+        /* Trim trailing whitespace */
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r' || line[len-1] == ' '))
+            line[--len] = '\0';
+
+        if (!in_section) {
+            if (len >= 2 && line[0] == '#' && line[1] == '#') {
+                const char *h = line + 2;
+                while (*h == ' ') h++;
+                if (strncasecmp(h, "when to use", 11) == 0) in_section = true;
+            }
+        } else {
+            if (len >= 2 && line[0] == '#' && line[1] == '#') break; /* next section */
+            if (len == 0) continue;
+
+            /* Separate multiple lines with a space */
+            if (off > 0 && off < out_size - 2) out[off++] = ' ';
+
+            size_t copy = len < out_size - off - 1 ? len : out_size - off - 1;
+            memcpy(out + off, line, copy);
+            off += copy;
+        }
+    }
+    out[off] = '\0';
+}
+
 size_t skill_loader_build_summary(char *buf, size_t size)
 {
     DIR *dir = opendir(MIMI_SPIFFS_BASE);
@@ -323,14 +360,24 @@ size_t skill_loader_build_summary(char *buf, size_t size)
         extract_title(first_line, strlen(first_line), title, sizeof(title));
 
         /* Read description (until blank line) */
-        char desc[256];
+        char desc[128];
         extract_description(f, desc, sizeof(desc));
+
+        /* Scan remainder for ## When to use trigger conditions */
+        char when[192];
+        extract_when_to_use(f, when, sizeof(when));
         fclose(f);
 
-        /* Append to summary */
-        off += snprintf(buf + off, size - off,
-            "- **%s**: %s (read with: read_file %s)\n",
-            title, desc, full_path);
+        /* Append to summary — include trigger conditions so the LLM knows when to fire */
+        if (when[0]) {
+            off += snprintf(buf + off, size - off,
+                "- **%s** [trigger: %s] → MUST call: read_file %s\n",
+                title, when, full_path);
+        } else {
+            off += snprintf(buf + off, size - off,
+                "- **%s**: %s → MUST call: read_file %s\n",
+                title, desc, full_path);
+        }
     }
 
     closedir(dir);
