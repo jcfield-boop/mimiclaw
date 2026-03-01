@@ -665,6 +665,11 @@ esp_err_t ws_server_start(void)
     config.max_open_sockets  = 4; /* lwIP max_sockets(8) minus 3 internal = 5 max; use 4 to be safe */
     config.stack_size        = 8192;                     /* SPIFFS I/O needs headroom */
     config.max_uri_handlers  = 17;
+    /* Give WS clients more room to tolerate gaps when the device is mid-LLM
+     * or mid-tool HTTP call and the lwIP stack is temporarily saturated.
+     * Default is 5 s; 30 s covers even the slowest LLM responses. */
+    config.send_wait_timeout = 30;
+    config.recv_wait_timeout = 30;
 
     esp_err_t ret = httpd_start(&s_server, &config);
     if (ret != ESP_OK) {

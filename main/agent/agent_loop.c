@@ -436,6 +436,7 @@ static void agent_loop_task(void *arg)
         } else {
             /* Error or empty response */
             free(final_text);
+            led_set_state(LED_IDLE);
             ws_server_broadcast_monitor("error", "agent: LLM returned empty response");
             mimi_msg_t out = {0};
             strncpy(out.channel, msg.channel, sizeof(out.channel) - 1);
