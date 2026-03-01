@@ -64,3 +64,8 @@ CONFIG_LWIP_SNTP_MAX_SERVERS=3
 
 # Cross-signed cert verification (needed for GoDaddy/Telegram cert chain)
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y
+
+# Coredump to flash partition (black box — records crash for post-mortem)
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECK_BOOT=y

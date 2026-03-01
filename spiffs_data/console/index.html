@@ -12,6 +12,8 @@ header h1{font-size:0.95rem;color:#7ec8e3}
 #ip{color:#888;font-size:0.8rem}
 #mem{color:#7ee38e;font-size:0.75rem;margin-left:6px;white-space:nowrap}
 #tok{color:#c8e37e;font-size:0.75rem;margin-left:6px;white-space:nowrap}
+#uptime{color:#777;font-size:0.75rem;margin-left:6px;white-space:nowrap}
+#uptime.crash{color:#e3b97e}
 #ws-dot{width:8px;height:8px;border-radius:50%;background:#555;flex-shrink:0;transition:background .3s}
 #ws-dot.on{background:#7ee38e}
 #ws-dot.err{background:#e37e7e}
@@ -76,6 +78,7 @@ textarea:focus{border-color:#555}
   <span id="ip"></span>
   <span id="mem"></span>
   <span id="tok"></span>
+  <span id="uptime"></span>
   <button onclick="doHeartbeat()">&#x2665; Heartbeat</button>
   <button id="reboot-btn" onclick="doReboot()">&#x21BA; Reboot</button>
 </header>
@@ -335,26 +338,47 @@ function setSkillStatus(msg){
 }
 
 /* ── Sysinfo ── */
+var CRASH_REASONS=['panic','task_wdt','int_wdt','brownout'];
+
+function fmtUptime(s){
+  if(s<60) return s+'s';
+  if(s<3600){var m=Math.floor(s/60);return m+'m '+(s%60)+'s';}
+  var h=Math.floor(s/3600);var m=Math.floor((s%3600)/60);
+  return h+'h '+m+'m';
+}
+
 function fetchSysinfo(){
   fetch('/api/sysinfo')
   .then(function(r){return r.json()})
   .then(function(d){
+    /* RAM + SPIFFS */
     var hf=Math.round(d.heap_free/1024);
     var hm=Math.round(d.heap_min/1024);
     var su=Math.round(d.spiffs_used/1024);
     var st=Math.round(d.spiffs_total/1024);
     document.getElementById('mem').textContent=
-      'RAM:'+hf+'K(min:'+hm+'K)  FS:'+su+'/'+st+'K';
+      'RAM '+hf+'K (min '+hm+'K)  FS '+su+'/'+st+'K';
+
+    /* Tokens + cost */
     var ti=d.tokens_in||0,to=d.tokens_out||0,llmCost=d.cost_millicents||0;
     var sc=d.search_calls||0,sCost=d.search_cost_millicents||0;
     var totalCost=llmCost+sCost;
-    var tokStr='Tok:'+ti+'\u2191'+to+'\u2193';
-    if(sc>0) tokStr+='  Search:'+sc;
-    if(totalCost>0){
-      var dollars=(totalCost/100000).toFixed(4);
-      tokStr+='  Cost:$'+dollars;
-    }
+    var tokStr='Tok '+ti+'\u2191'+to+'\u2193';
+    if(sc>0) tokStr+='  Search '+sc;
+    if(totalCost>0) tokStr+='  $'+(totalCost/100000).toFixed(4);
     document.getElementById('tok').textContent=tokStr;
+
+    /* Uptime + reset reason */
+    var uptimeEl=document.getElementById('uptime');
+    var upS=d.uptime_s||0;
+    var rsn=d.reset_reason||'';
+    var isCrash=CRASH_REASONS.indexOf(rsn)!==-1;
+    uptimeEl.className=isCrash?'crash':'';
+    if(isCrash){
+      uptimeEl.textContent='\u26a0 '+rsn+' \u2192 up '+fmtUptime(upS);
+    } else {
+      uptimeEl.textContent='up '+fmtUptime(upS);
+    }
   })
   .catch(function(){});
 }
