@@ -462,7 +462,25 @@ static esp_err_t skill_delete_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-/* GET /api/sysinfo -> heap, SPIFFS stats, and token usage */
+/* Map esp_reset_reason_t to a short human-readable string */
+static const char *reset_reason_str(esp_reset_reason_t r)
+{
+    switch (r) {
+        case ESP_RST_POWERON:   return "power_on";
+        case ESP_RST_EXT:       return "ext_pin";
+        case ESP_RST_SW:        return "software";
+        case ESP_RST_PANIC:     return "panic";
+        case ESP_RST_INT_WDT:   return "int_wdt";
+        case ESP_RST_TASK_WDT:  return "task_wdt";
+        case ESP_RST_WDT:       return "wdt";
+        case ESP_RST_DEEPSLEEP: return "deep_sleep";
+        case ESP_RST_BROWNOUT:  return "brownout";
+        case ESP_RST_SDIO:      return "sdio";
+        default:                return "unknown";
+    }
+}
+
+/* GET /api/sysinfo -> heap, SPIFFS stats, token usage, uptime, reset reason */
 static esp_err_t sysinfo_handler(httpd_req_t *req)
 {
     size_t heap_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
@@ -476,15 +494,20 @@ static esp_err_t sysinfo_handler(httpd_req_t *req)
     uint32_t search_calls = 0, search_cost_mc = 0;
     tool_web_search_get_stats(&search_calls, &search_cost_mc);
 
-    char buf[384];
+    uint32_t uptime_s = (uint32_t)(esp_timer_get_time() / 1000000ULL);
+    const char *reset_str = reset_reason_str(esp_reset_reason());
+
+    char buf[448];
     snprintf(buf, sizeof(buf),
              "{\"heap_free\":%u,\"heap_min\":%u,\"spiffs_total\":%u,\"spiffs_used\":%u"
              ",\"tokens_in\":%u,\"tokens_out\":%u,\"cost_millicents\":%u"
-             ",\"search_calls\":%u,\"search_cost_millicents\":%u}",
+             ",\"search_calls\":%u,\"search_cost_millicents\":%u"
+             ",\"uptime_s\":%lu,\"reset_reason\":\"%s\"}",
              (unsigned)heap_free, (unsigned)heap_min,
              (unsigned)spiffs_total, (unsigned)spiffs_used,
              (unsigned)tok_in, (unsigned)tok_out, (unsigned)llm_cost_mc,
-             (unsigned)search_calls, (unsigned)search_cost_mc);
+             (unsigned)search_calls, (unsigned)search_cost_mc,
+             uptime_s, reset_str);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_sendstr(req, buf);
