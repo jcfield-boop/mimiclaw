@@ -92,3 +92,27 @@ esp_err_t llm_chat_tools(const char *system_prompt,
                          const char *tools_json,
                          bool force_tool_use,
                          llm_response_t *resp);
+
+/* ── Streaming ─────────────────────────────────────────────────── */
+
+/**
+ * Called periodically during streaming with the accumulated text so far.
+ * @param text  Full text accumulated up to this point (NUL-terminated).
+ * @param len   Total bytes accumulated (same as strlen(text)).
+ * @param ctx   Caller-supplied context pointer.
+ */
+typedef void (*llm_stream_progress_fn)(const char *text, size_t len, void *ctx);
+
+/**
+ * Like llm_chat_tools() but streams the response via SSE.
+ * progress_cb is called as text accumulates (rate-limited internally).
+ * Falls back to non-streaming automatically when HTTP proxy is enabled.
+ * Returns the same llm_response_t format as llm_chat_tools().
+ */
+esp_err_t llm_chat_tools_streaming(const char *system_prompt,
+                                   cJSON *messages,
+                                   const char *tools_json,
+                                   bool force_tool_use,
+                                   llm_stream_progress_fn progress_cb,
+                                   void *progress_ctx,
+                                   llm_response_t *resp);

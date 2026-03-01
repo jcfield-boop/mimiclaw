@@ -9,6 +9,7 @@
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "nvs.h"
 #include "cJSON.h"
 
@@ -876,6 +877,546 @@ esp_err_t llm_chat_tools(const char *system_prompt,
                  resp->tool_use ? "tool_use" : "end_turn");
         ws_server_broadcast_monitor("llm", summary);
     }
+
+    return ESP_OK;
+}
+
+/* ── SSE Streaming ────────────────────────────────────────────── */
+
+#define SSE_LINE_MAX   512
+#define SSE_TC_MAX     MIMI_MAX_TOOL_CALLS
+
+/* Rate-limit thresholds for progress callbacks */
+#define SSE_PROGRESS_MIN_CHARS  200
+#define SSE_PROGRESS_MIN_US     (2LL * 1000 * 1000)
+
+typedef struct {
+    char        id[64];
+    char        name[32];
+    resp_buf_t  args;       /* lazily initialized on first fragment */
+} sse_tc_t;
+
+typedef struct {
+    /* Line accumulator */
+    char        line[SSE_LINE_MAX + 1];
+    int         line_len;
+
+    /* Accumulated response */
+    resp_buf_t  text;
+    sse_tc_t    tc[SSE_TC_MAX];
+    int         tc_count;
+
+    /* Stop conditions */
+    bool        tool_use;
+    bool        truncated;
+    bool        done;
+
+    /* Token usage */
+    uint32_t    input_tokens;
+    uint32_t    output_tokens;
+
+    /* Anthropic block tracking */
+    int         cur_block_index;
+    char        cur_block_type[16];
+
+    /* Progress callback */
+    llm_stream_progress_fn progress_cb;
+    void       *progress_ctx;
+    size_t      last_progress_len;
+    int64_t     last_progress_us;
+} sse_state_t;
+
+static sse_state_t *sse_state_alloc(void)
+{
+    sse_state_t *st = calloc(1, sizeof(sse_state_t));
+    if (!st) return NULL;
+    if (resp_buf_init(&st->text, 2048) != ESP_OK) {
+        free(st);
+        return NULL;
+    }
+    st->last_progress_us = esp_timer_get_time();
+    return st;
+}
+
+static void sse_state_free(sse_state_t *st)
+{
+    if (!st) return;
+    resp_buf_free(&st->text);
+    for (int i = 0; i < SSE_TC_MAX; i++) {
+        resp_buf_free(&st->tc[i].args);
+    }
+    free(st);
+}
+
+static void sse_maybe_emit_progress(sse_state_t *st)
+{
+    if (!st->progress_cb || !st->text.data) return;
+    size_t cur_len = st->text.len;
+    if (cur_len <= st->last_progress_len) return;
+
+    size_t new_chars = cur_len - st->last_progress_len;
+    int64_t now = esp_timer_get_time();
+    if (new_chars < SSE_PROGRESS_MIN_CHARS &&
+        (now - st->last_progress_us) < SSE_PROGRESS_MIN_US) return;
+
+    st->progress_cb(st->text.data, cur_len, st->progress_ctx);
+    st->last_progress_len = cur_len;
+    st->last_progress_us  = now;
+}
+
+/* ── OpenAI / OpenRouter SSE chunk ─────────────────────────────── */
+
+static void sse_process_openai(sse_state_t *st, cJSON *root)
+{
+    /* Top-level usage (stream_options: include_usage sends it in last chunk) */
+    cJSON *usage_top = cJSON_GetObjectItem(root, "usage");
+    if (usage_top) {
+        cJSON *pt = cJSON_GetObjectItem(usage_top, "prompt_tokens");
+        cJSON *ct = cJSON_GetObjectItem(usage_top, "completion_tokens");
+        if (pt && cJSON_IsNumber(pt)) st->input_tokens  = (uint32_t)pt->valueint;
+        if (ct && cJSON_IsNumber(ct)) st->output_tokens = (uint32_t)ct->valueint;
+    }
+
+    cJSON *choices = cJSON_GetObjectItem(root, "choices");
+    cJSON *c0 = (choices && cJSON_IsArray(choices))
+                    ? cJSON_GetArrayItem(choices, 0) : NULL;
+    if (!c0) return;
+
+    /* finish_reason */
+    cJSON *finish = cJSON_GetObjectItem(c0, "finish_reason");
+    if (finish && cJSON_IsString(finish) && finish->valuestring[0]) {
+        if (strcmp(finish->valuestring, "tool_calls") == 0) st->tool_use  = true;
+        if (strcmp(finish->valuestring, "length")     == 0) st->truncated = true;
+        st->done = true;
+    }
+
+    cJSON *delta = cJSON_GetObjectItem(c0, "delta");
+    if (!delta) return;
+
+    /* Text content */
+    cJSON *content = cJSON_GetObjectItem(delta, "content");
+    if (content && cJSON_IsString(content) && content->valuestring[0]) {
+        resp_buf_append(&st->text, content->valuestring, strlen(content->valuestring));
+    }
+
+    /* Tool calls */
+    cJSON *tc_arr = cJSON_GetObjectItem(delta, "tool_calls");
+    if (!tc_arr || !cJSON_IsArray(tc_arr)) return;
+
+    cJSON *tc_item;
+    cJSON_ArrayForEach(tc_item, tc_arr) {
+        cJSON *idx_j = cJSON_GetObjectItem(tc_item, "index");
+        int idx = (idx_j && cJSON_IsNumber(idx_j)) ? idx_j->valueint : 0;
+        if (idx < 0 || idx >= SSE_TC_MAX) continue;
+        if (idx >= st->tc_count) st->tc_count = idx + 1;
+
+        cJSON *id = cJSON_GetObjectItem(tc_item, "id");
+        if (id && cJSON_IsString(id) && id->valuestring[0]) {
+            strncpy(st->tc[idx].id, id->valuestring, sizeof(st->tc[idx].id) - 1);
+        }
+
+        cJSON *func = cJSON_GetObjectItem(tc_item, "function");
+        if (!func) continue;
+
+        cJSON *name = cJSON_GetObjectItem(func, "name");
+        if (name && cJSON_IsString(name) && name->valuestring[0]) {
+            strncpy(st->tc[idx].name, name->valuestring, sizeof(st->tc[idx].name) - 1);
+        }
+
+        cJSON *args = cJSON_GetObjectItem(func, "arguments");
+        if (args && cJSON_IsString(args)) {
+            if (!st->tc[idx].args.data) {
+                resp_buf_init(&st->tc[idx].args, 256);
+            }
+            resp_buf_append(&st->tc[idx].args, args->valuestring, strlen(args->valuestring));
+        }
+    }
+}
+
+/* ── Anthropic SSE chunk ────────────────────────────────────────── */
+
+static void sse_process_anthropic(sse_state_t *st, cJSON *root)
+{
+    cJSON *type = cJSON_GetObjectItem(root, "type");
+    if (!type || !cJSON_IsString(type)) return;
+    const char *t = type->valuestring;
+
+    if (strcmp(t, "message_start") == 0) {
+        cJSON *msg = cJSON_GetObjectItem(root, "message");
+        if (msg) {
+            cJSON *usage = cJSON_GetObjectItem(msg, "usage");
+            if (usage) {
+                cJSON *it = cJSON_GetObjectItem(usage, "input_tokens");
+                if (it && cJSON_IsNumber(it)) st->input_tokens = (uint32_t)it->valueint;
+            }
+        }
+    } else if (strcmp(t, "content_block_start") == 0) {
+        cJSON *idx_j = cJSON_GetObjectItem(root, "index");
+        st->cur_block_index = (idx_j && cJSON_IsNumber(idx_j)) ? idx_j->valueint : 0;
+        cJSON *cb = cJSON_GetObjectItem(root, "content_block");
+        if (cb) {
+            cJSON *btype = cJSON_GetObjectItem(cb, "type");
+            if (btype && cJSON_IsString(btype)) {
+                strncpy(st->cur_block_type, btype->valuestring,
+                        sizeof(st->cur_block_type) - 1);
+            }
+            if (strcmp(st->cur_block_type, "tool_use") == 0) {
+                int idx = st->cur_block_index;
+                if (idx >= 0 && idx < SSE_TC_MAX) {
+                    if (idx >= st->tc_count) st->tc_count = idx + 1;
+                    cJSON *id   = cJSON_GetObjectItem(cb, "id");
+                    cJSON *name = cJSON_GetObjectItem(cb, "name");
+                    if (id   && cJSON_IsString(id))
+                        strncpy(st->tc[idx].id, id->valuestring,
+                                sizeof(st->tc[idx].id) - 1);
+                    if (name && cJSON_IsString(name))
+                        strncpy(st->tc[idx].name, name->valuestring,
+                                sizeof(st->tc[idx].name) - 1);
+                }
+            }
+        }
+    } else if (strcmp(t, "content_block_delta") == 0) {
+        cJSON *delta = cJSON_GetObjectItem(root, "delta");
+        if (!delta) return;
+        cJSON *dtype = cJSON_GetObjectItem(delta, "type");
+        if (!dtype || !cJSON_IsString(dtype)) return;
+
+        if (strcmp(dtype->valuestring, "text_delta") == 0) {
+            cJSON *text = cJSON_GetObjectItem(delta, "text");
+            if (text && cJSON_IsString(text)) {
+                resp_buf_append(&st->text, text->valuestring, strlen(text->valuestring));
+            }
+        } else if (strcmp(dtype->valuestring, "input_json_delta") == 0) {
+            int idx = st->cur_block_index;
+            if (idx >= 0 && idx < SSE_TC_MAX) {
+                cJSON *pj = cJSON_GetObjectItem(delta, "partial_json");
+                if (pj && cJSON_IsString(pj)) {
+                    if (!st->tc[idx].args.data) {
+                        resp_buf_init(&st->tc[idx].args, 256);
+                    }
+                    resp_buf_append(&st->tc[idx].args, pj->valuestring,
+                                    strlen(pj->valuestring));
+                }
+            }
+        }
+    } else if (strcmp(t, "message_delta") == 0) {
+        cJSON *delta = cJSON_GetObjectItem(root, "delta");
+        if (delta) {
+            cJSON *stop = cJSON_GetObjectItem(delta, "stop_reason");
+            if (stop && cJSON_IsString(stop)) {
+                if (strcmp(stop->valuestring, "tool_use")   == 0) st->tool_use  = true;
+                if (strcmp(stop->valuestring, "max_tokens") == 0) st->truncated = true;
+            }
+        }
+        cJSON *usage = cJSON_GetObjectItem(root, "usage");
+        if (usage) {
+            cJSON *ot = cJSON_GetObjectItem(usage, "output_tokens");
+            if (ot && cJSON_IsNumber(ot)) st->output_tokens = (uint32_t)ot->valueint;
+        }
+    } else if (strcmp(t, "message_stop") == 0) {
+        st->done = true;
+    }
+}
+
+/* ── SSE line dispatcher ─────────────────────────────────────────── */
+
+static void sse_process_line(sse_state_t *st, const char *line, int len)
+{
+    if (len == 0) return;
+
+    /* Skip "event: ..." lines */
+    if (strncmp(line, "event: ", 7) == 0) return;
+
+    /* Only handle "data: ..." lines */
+    if (strncmp(line, "data: ", 6) != 0) return;
+    const char *data = line + 6;
+
+    /* OpenAI sentinel */
+    if (strcmp(data, "[DONE]") == 0) {
+        st->done = true;
+        return;
+    }
+
+    cJSON *root = cJSON_Parse(data);
+    if (!root) return;
+
+    if (provider_uses_openai_format()) {
+        sse_process_openai(st, root);
+    } else {
+        sse_process_anthropic(st, root);
+    }
+    cJSON_Delete(root);
+
+    sse_maybe_emit_progress(st);
+}
+
+/* ── SSE HTTP event handler ──────────────────────────────────────── */
+
+static esp_err_t sse_http_event_handler(esp_http_client_event_t *evt)
+{
+    sse_state_t *st = (sse_state_t *)evt->user_data;
+    if (evt->event_id != HTTP_EVENT_ON_DATA) return ESP_OK;
+
+    const char *p = (const char *)evt->data;
+    int remaining  = evt->data_len;
+
+    while (remaining > 0) {
+        /* Look for newline in this chunk */
+        const char *nl = memchr(p, '\n', remaining);
+
+        if (!nl) {
+            /* No newline — accumulate into line buffer (cap at SSE_LINE_MAX) */
+            int avail = SSE_LINE_MAX - st->line_len;
+            int copy  = (remaining < avail) ? remaining : avail;
+            if (copy > 0) {
+                memcpy(st->line + st->line_len, p, copy);
+                st->line_len += copy;
+            }
+            break;
+        }
+
+        /* Copy up to (but not including) the newline */
+        int n     = (int)(nl - p);
+        int avail = SSE_LINE_MAX - st->line_len;
+        int copy  = (n < avail) ? n : avail;
+        if (copy > 0) {
+            memcpy(st->line + st->line_len, p, copy);
+            st->line_len += copy;
+        }
+
+        /* Strip trailing \r */
+        if (st->line_len > 0 && st->line[st->line_len - 1] == '\r') {
+            st->line_len--;
+        }
+        st->line[st->line_len] = '\0';
+
+        sse_process_line(st, st->line, st->line_len);
+        st->line_len = 0;
+
+        p         += n + 1;   /* skip past '\n' */
+        remaining -= n + 1;
+    }
+
+    return ESP_OK;
+}
+
+/* ── Convert SSE state → llm_response_t ─────────────────────────── */
+
+static esp_err_t sse_state_to_response(sse_state_t *st, llm_response_t *resp)
+{
+    memset(resp, 0, sizeof(*resp));
+
+    if (st->text.len > 0) {
+        {
+            char vmsg[80];
+            snprintf(vmsg, sizeof(vmsg), "LLM text alloc: %u bytes (heap: %u free)",
+                     (unsigned)st->text.len,
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+            ws_server_broadcast_monitor_verbose("llm", vmsg);
+        }
+        resp->text = calloc(1, st->text.len + 1);
+        if (!resp->text) {
+            char emsg[96];
+            snprintf(emsg, sizeof(emsg), "LLM: OOM for text (%u bytes, heap %u free)",
+                     (unsigned)st->text.len,
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+            ESP_LOGE(TAG, "%s", emsg);
+            ws_server_broadcast_monitor("error", emsg);
+            return ESP_ERR_NO_MEM;
+        }
+        memcpy(resp->text, st->text.data, st->text.len);
+        resp->text_len = st->text.len;
+    }
+
+    resp->tool_use      = st->tool_use;
+    resp->truncated     = st->truncated;
+    resp->input_tokens  = st->input_tokens;
+    resp->output_tokens = st->output_tokens;
+
+    for (int i = 0; i < st->tc_count && resp->call_count < MIMI_MAX_TOOL_CALLS; i++) {
+        if (st->tc[i].name[0] == '\0') continue;
+        llm_tool_call_t *call = &resp->calls[resp->call_count];
+        strncpy(call->id,   st->tc[i].id,   sizeof(call->id)   - 1);
+        strncpy(call->name, st->tc[i].name, sizeof(call->name) - 1);
+        if (st->tc[i].args.data && st->tc[i].args.len > 0) {
+            call->input     = strdup(st->tc[i].args.data);
+            call->input_len = st->tc[i].args.len;
+        } else {
+            call->input     = strdup("{}");
+            call->input_len = 2;
+        }
+        resp->call_count++;
+    }
+
+    return ESP_OK;
+}
+
+/* ── Public: chat with tools (streaming SSE) ─────────────────────── */
+
+esp_err_t llm_chat_tools_streaming(const char *system_prompt,
+                                   cJSON *messages,
+                                   const char *tools_json,
+                                   bool force_tool_use,
+                                   llm_stream_progress_fn progress_cb,
+                                   void *progress_ctx,
+                                   llm_response_t *resp)
+{
+    /* Proxy path doesn't support SSE — delegate to blocking path */
+    if (http_proxy_is_enabled()) {
+        return llm_chat_tools(system_prompt, messages, tools_json, force_tool_use, resp);
+    }
+
+    memset(resp, 0, sizeof(*resp));
+    if (s_api_key[0] == '\0') return ESP_ERR_INVALID_STATE;
+
+    /* Build request body (identical to non-streaming + stream:true) */
+    cJSON *body = cJSON_CreateObject();
+    cJSON_AddStringToObject(body, "model", s_model);
+    if (provider_is_openai()) {
+        cJSON_AddNumberToObject(body, "max_completion_tokens", MIMI_LLM_MAX_TOKENS);
+    } else {
+        cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+    }
+    cJSON_AddBoolToObject(body, "stream", true);
+
+    if (provider_uses_openai_format()) {
+        /* Request usage in the final streaming chunk */
+        cJSON *sopts = cJSON_CreateObject();
+        cJSON_AddBoolToObject(sopts, "include_usage", true);
+        cJSON_AddItemToObject(body, "stream_options", sopts);
+
+        cJSON *openai_msgs = convert_messages_openai(system_prompt, messages);
+        cJSON_AddItemToObject(body, "messages", openai_msgs);
+        if (tools_json) {
+            cJSON *tools = convert_tools_openai(tools_json);
+            if (tools) {
+                cJSON_AddItemToObject(body, "tools", tools);
+                cJSON_AddStringToObject(body, "tool_choice",
+                                        force_tool_use ? "required" : "auto");
+            }
+        }
+    } else {
+        cJSON_AddStringToObject(body, "system", system_prompt);
+        cJSON *msgs_copy = cJSON_Duplicate(messages, 1);
+        cJSON_AddItemToObject(body, "messages", msgs_copy);
+        if (tools_json) {
+            cJSON *tools = cJSON_Parse(tools_json);
+            if (tools) {
+                cJSON_AddItemToObject(body, "tools", tools);
+                if (force_tool_use) {
+                    cJSON *tc = cJSON_CreateObject();
+                    cJSON_AddStringToObject(tc, "type", "any");
+                    cJSON_AddItemToObject(body, "tool_choice", tc);
+                }
+            }
+        }
+    }
+
+    char *post_data = cJSON_PrintUnformatted(body);
+    cJSON_Delete(body);
+    if (!post_data) return ESP_ERR_NO_MEM;
+
+    ESP_LOGI(TAG, "Calling LLM streaming (provider: %s, model: %s, body: %d bytes)",
+             s_provider, s_model, (int)strlen(post_data));
+
+    /* Allocate SSE state */
+    sse_state_t *st = sse_state_alloc();
+    if (!st) {
+        free(post_data);
+        return ESP_ERR_NO_MEM;
+    }
+    st->progress_cb  = progress_cb;
+    st->progress_ctx = progress_ctx;
+
+    /* Configure HTTP client with SSE event handler */
+    esp_http_client_config_t config = {
+        .url              = llm_api_url(),
+        .event_handler    = sse_http_event_handler,
+        .user_data        = st,
+        .timeout_ms       = 120 * 1000,
+        .buffer_size      = 4096,
+        .buffer_size_tx   = 4096,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        sse_state_free(st);
+        free(post_data);
+        return ESP_FAIL;
+    }
+
+    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_header(client, "Accept", "text/event-stream");
+    if (provider_uses_openai_format()) {
+        if (s_api_key[0]) {
+            char auth[LLM_API_KEY_MAX_LEN + 16];
+            snprintf(auth, sizeof(auth), "Bearer %s", s_api_key);
+            esp_http_client_set_header(client, "Authorization", auth);
+        }
+        if (provider_is_openrouter()) {
+            esp_http_client_set_header(client, "HTTP-Referer", MIMI_OPENROUTER_REFERER);
+            esp_http_client_set_header(client, "X-Title",      MIMI_OPENROUTER_TITLE);
+        }
+    } else {
+        esp_http_client_set_header(client, "x-api-key", s_api_key);
+        esp_http_client_set_header(client, "anthropic-version", MIMI_LLM_API_VERSION);
+    }
+    esp_http_client_set_post_field(client, post_data, strlen(post_data));
+
+    esp_err_t err = esp_http_client_perform(client);
+    int status    = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+    free(post_data);
+
+    if (err != ESP_OK) {
+        char emsg[80];
+        snprintf(emsg, sizeof(emsg), "LLM streaming HTTP failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "%s", emsg);
+        ws_server_broadcast_monitor("error", emsg);
+        sse_state_free(st);
+        return err;
+    }
+
+    if (status != 200) {
+        char emsg[80];
+        snprintf(emsg, sizeof(emsg), "LLM API error %d (streaming)", status);
+        ESP_LOGE(TAG, "%s", emsg);
+        ws_server_broadcast_monitor("error", emsg);
+        sse_state_free(st);
+        return ESP_FAIL;
+    }
+
+    {
+        char szlog[64];
+        snprintf(szlog, sizeof(szlog), "LLM stream done: %u bytes text, %d tool calls",
+                 (unsigned)st->text.len, st->tc_count);
+        ws_server_broadcast_monitor("llm", szlog);
+    }
+
+    /* Convert accumulated SSE state to structured response */
+    err = sse_state_to_response(st, resp);
+    sse_state_free(st);
+
+    if (err != ESP_OK) return err;
+
+    /* Update session stats */
+    s_total_input_tokens  += resp->input_tokens;
+    s_total_output_tokens += resp->output_tokens;
+
+    {
+        char summary[96];
+        snprintf(summary, sizeof(summary), "LLM: %lu\u2191 %lu\u2193 tok, %d tool%s, stop=%s",
+                 (unsigned long)resp->input_tokens, (unsigned long)resp->output_tokens,
+                 resp->call_count, resp->call_count == 1 ? "" : "s",
+                 resp->tool_use ? "tool_use" : "end_turn");
+        ws_server_broadcast_monitor("llm", summary);
+    }
+
+    ESP_LOGI(TAG, "Stream response: %d bytes text, %d tool calls, stop=%s",
+             (int)resp->text_len, resp->call_count,
+             resp->tool_use ? "tool_use" : "end_turn");
 
     return ESP_OK;
 }

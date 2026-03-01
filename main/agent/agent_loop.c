@@ -8,6 +8,7 @@
 #include "gateway/ws_server.h"
 #include "led/led_status.h"
 #include "tools/tool_memory.h"
+#include "telegram/telegram_bot.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -16,12 +17,39 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_http_client.h"
 #include "esp_system.h"
 #include "cJSON.h"
 
 static const char *TAG = "agent";
 
 #define TOOL_OUTPUT_SIZE  (8 * 1024)
+
+/* ── Streaming progress context ───────────────────────────────── */
+
+typedef struct {
+    size_t last_broadcast_len;
+} tg_stream_ctx_t;
+
+/* Progress callback: broadcasts partial text preview to web console.
+ * No Telegram HTTP calls here — avoids nested SSL on limited stack. */
+static void tg_stream_progress(const char *text, size_t len, void *ctx)
+{
+    tg_stream_ctx_t *sc = (tg_stream_ctx_t *)ctx;
+    if (len <= sc->last_broadcast_len) return;
+
+    /* Show the last ~50 chars of what just arrived */
+    size_t tail = (len > 50) ? (len - 50) : 0;
+    char preview[80];
+    snprintf(preview, sizeof(preview), "+%zu chars: ...%.50s",
+             len - sc->last_broadcast_len, text + tail);
+    /* Strip newlines from preview */
+    for (char *p = preview; *p; p++) {
+        if (*p == '\n' || *p == '\r') *p = ' ';
+    }
+    ws_server_broadcast_monitor_verbose("stream", preview);
+    sc->last_broadcast_len = len;
+}
 
 /* Build the assistant content array from llm_response_t for the messages history.
  * Returns a cJSON array with text and tool_use blocks. */
@@ -287,7 +315,21 @@ static void agent_loop_task(void *arg)
         int iteration = 0;
         bool sent_working_status = false;
         bool recovery_tried = false;
+        bool retry_done = false;
         bool oom_restart = false;
+
+        /* Send a Telegram placeholder before the first LLM call so the user
+         * sees immediate feedback.  We edit this message with the final reply. */
+        int32_t tg_placeholder_id = -1;
+        bool is_telegram = (strcmp(msg.channel, MIMI_CHAN_TELEGRAM) == 0);
+        if (is_telegram) {
+            tg_placeholder_id = telegram_send_get_id(msg.chat_id, "\xF0\x9F\xA6\x85 thinking...");
+            if (tg_placeholder_id > 0) {
+                ws_server_broadcast_monitor_verbose("task", "telegram: placeholder sent");
+            }
+        }
+
+        tg_stream_ctx_t stream_ctx = { .last_broadcast_len = 0 };
 
         /* Detect memory trigger keywords so we can force tool_choice="any" on
          * the first LLM iteration. Only applied to iter 0 — subsequent iters
@@ -310,9 +352,10 @@ static void agent_loop_task(void *arg)
         }
 
         while (iteration < MIMI_AGENT_MAX_TOOL_ITER) {
-            /* Send "working" indicator before each API call */
+            /* Send "working" indicator before each API call (skip if placeholder sent) */
 #if MIMI_AGENT_SEND_WORKING_STATUS
-            if (!sent_working_status && strcmp(msg.channel, MIMI_CHAN_SYSTEM) != 0) {
+            if (!sent_working_status && tg_placeholder_id < 0 &&
+                strcmp(msg.channel, MIMI_CHAN_SYSTEM) != 0) {
                 mimi_msg_t status = {0};
                 strncpy(status.channel, msg.channel, sizeof(status.channel) - 1);
                 strncpy(status.chat_id, msg.chat_id, sizeof(status.chat_id) - 1);
@@ -330,13 +373,27 @@ static void agent_loop_task(void *arg)
 
             {
                 char itermsg[48];
-                snprintf(itermsg, sizeof(itermsg), "calling LLM (iter %d)...", iteration + 1);
+                snprintf(itermsg, sizeof(itermsg), "calling LLM streaming (iter %d)...", iteration + 1);
                 ws_server_broadcast_monitor("llm", itermsg);
                 led_set_state(LED_THINKING);
             }
             llm_response_t resp;
             bool force_this_iter = (force_memory_tool && iteration == 0);
-            err = llm_chat_tools(system_prompt, messages, tools_json, force_this_iter, &resp);
+            err = llm_chat_tools_streaming(system_prompt, messages, tools_json,
+                                           force_this_iter,
+                                           tg_stream_progress, &stream_ctx,
+                                           &resp);
+
+            /* Retry once on connection failure after a short delay */
+            if (err == ESP_ERR_HTTP_CONNECT && !retry_done) {
+                retry_done = true;
+                ws_server_broadcast_monitor("error", "LLM: connection failed, retrying in 2s...");
+                vTaskDelay(pdMS_TO_TICKS(2000));
+                err = llm_chat_tools_streaming(system_prompt, messages, tools_json,
+                                               force_this_iter,
+                                               tg_stream_progress, &stream_ctx,
+                                               &resp);
+            }
 
             if (err != ESP_OK) {
                 char emsg[80];
@@ -401,6 +458,9 @@ static void agent_loop_task(void *arg)
         }
 
         /* 5. Send response */
+        ws_server_broadcast_monitor("done", msg.chat_id);
+        led_set_state(LED_IDLE);
+
         if (final_text && final_text[0]) {
             /* Save to session (only user text + final assistant text) */
             esp_err_t save_user = session_append(msg.chat_id, "user", msg.content);
@@ -414,40 +474,49 @@ static void agent_loop_task(void *arg)
                 ESP_LOGI(TAG, "Session saved for chat %s", msg.chat_id);
             }
 
-            /* Compact the session file to MIMI_SESSION_MAX_MSGS lines.
-             * Prevents unbounded disk growth; runs once per turn after saves. */
+            /* Compact the session file to MIMI_SESSION_MAX_MSGS lines. */
             session_trim(msg.chat_id, MIMI_SESSION_MAX_MSGS);
 
-            /* Push response to outbound */
-            mimi_msg_t out = {0};
-            strncpy(out.channel, msg.channel, sizeof(out.channel) - 1);
-            strncpy(out.chat_id, msg.chat_id, sizeof(out.chat_id) - 1);
-            out.content = final_text;  /* transfer ownership */
-            ESP_LOGI(TAG, "Queue final response to %s:%s (%d bytes)",
-                     out.channel, out.chat_id, (int)strlen(final_text));
-            ws_server_broadcast_monitor("done", out.chat_id);
-            led_set_state(LED_IDLE);
-            if (message_bus_push_outbound(&out) != ESP_OK) {
-                ESP_LOGW(TAG, "Outbound queue full, drop final response");
+            ESP_LOGI(TAG, "Dispatching final response to %s:%s (%d bytes)",
+                     msg.channel, msg.chat_id, (int)strlen(final_text));
+
+            if (tg_placeholder_id > 0 && is_telegram) {
+                /* Edit the placeholder in place with the final answer */
+                telegram_edit_message(msg.chat_id, tg_placeholder_id, final_text);
                 free(final_text);
             } else {
-                final_text = NULL;
+                /* Normal outbound dispatch */
+                mimi_msg_t out = {0};
+                strncpy(out.channel, msg.channel, sizeof(out.channel) - 1);
+                strncpy(out.chat_id, msg.chat_id, sizeof(out.chat_id) - 1);
+                out.content = final_text;  /* transfer ownership */
+                if (message_bus_push_outbound(&out) != ESP_OK) {
+                    ESP_LOGW(TAG, "Outbound queue full, drop final response");
+                    free(final_text);
+                } else {
+                    final_text = NULL;
+                }
             }
         } else {
             /* Error or empty response */
             free(final_text);
-            led_set_state(LED_IDLE);
             ws_server_broadcast_monitor("error", "agent: LLM returned empty response");
-            mimi_msg_t out = {0};
-            strncpy(out.channel, msg.channel, sizeof(out.channel) - 1);
-            strncpy(out.chat_id, msg.chat_id, sizeof(out.chat_id) - 1);
-            out.content = strdup(oom_restart
+            const char *err_text = oom_restart
                 ? "Memory exhausted \xe2\x80\x94 restarting..."
-                : "Sorry, I encountered an error.");
-            if (out.content) {
-                if (message_bus_push_outbound(&out) != ESP_OK) {
-                    ESP_LOGW(TAG, "Outbound queue full, drop error response");
-                    free(out.content);
+                : "Sorry, I encountered an error.";
+
+            if (tg_placeholder_id > 0 && is_telegram) {
+                telegram_edit_message(msg.chat_id, tg_placeholder_id, err_text);
+            } else {
+                mimi_msg_t out = {0};
+                strncpy(out.channel, msg.channel, sizeof(out.channel) - 1);
+                strncpy(out.chat_id, msg.chat_id, sizeof(out.chat_id) - 1);
+                out.content = strdup(err_text);
+                if (out.content) {
+                    if (message_bus_push_outbound(&out) != ESP_OK) {
+                        ESP_LOGW(TAG, "Outbound queue full, drop error response");
+                        free(out.content);
+                    }
                 }
             }
         }

@@ -566,6 +566,96 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text)
     return all_ok ? ESP_OK : ESP_FAIL;
 }
 
+int32_t telegram_send_get_id(const char *chat_id, const char *text)
+{
+    if (s_bot_token[0] == '\0' || !chat_id || !text) return -1;
+
+    cJSON *body = cJSON_CreateObject();
+    cJSON_AddStringToObject(body, "chat_id", chat_id);
+    cJSON_AddStringToObject(body, "text", text);
+    char *json_str = cJSON_PrintUnformatted(body);
+    cJSON_Delete(body);
+    if (!json_str) return -1;
+
+    char *resp = tg_api_call("sendMessage", json_str);
+    free(json_str);
+    if (!resp) return -1;
+
+    int32_t msg_id = -1;
+    cJSON *root = cJSON_Parse(resp);
+    free(resp);
+    if (root) {
+        cJSON *ok = cJSON_GetObjectItem(root, "ok");
+        if (cJSON_IsTrue(ok)) {
+            cJSON *result = cJSON_GetObjectItem(root, "result");
+            if (result) {
+                cJSON *mid = cJSON_GetObjectItem(result, "message_id");
+                if (mid && cJSON_IsNumber(mid)) {
+                    msg_id = (int32_t)mid->valuedouble;
+                }
+            }
+        }
+        cJSON_Delete(root);
+    }
+
+    if (msg_id > 0) {
+        char mon[64];
+        snprintf(mon, sizeof(mon), "[tg->%s] placeholder id=%d", chat_id, (int)msg_id);
+        ws_server_broadcast_monitor_verbose("telegram", mon);
+    } else {
+        ESP_LOGW(TAG, "telegram_send_get_id failed for %s", chat_id);
+    }
+    return msg_id;
+}
+
+esp_err_t telegram_edit_message(const char *chat_id, int32_t message_id, const char *text)
+{
+    if (s_bot_token[0] == '\0') return ESP_ERR_INVALID_STATE;
+    if (message_id <= 0 || !chat_id || !text) return ESP_ERR_INVALID_ARG;
+
+    cJSON *body = cJSON_CreateObject();
+    cJSON_AddStringToObject(body, "chat_id", chat_id);
+    cJSON_AddNumberToObject(body, "message_id", (double)message_id);
+
+    size_t text_len = strlen(text);
+    if (text_len > MIMI_TG_MAX_MSG_LEN) {
+        /* Truncate with ellipsis suffix */
+        char *trunc = malloc(MIMI_TG_MAX_MSG_LEN + 4);
+        if (trunc) {
+            memcpy(trunc, text, MIMI_TG_MAX_MSG_LEN);
+            memcpy(trunc + MIMI_TG_MAX_MSG_LEN, "...", 4);
+            cJSON_AddStringToObject(body, "text", trunc);
+            free(trunc);
+        } else {
+            cJSON_AddStringToObject(body, "text", text);
+        }
+    } else {
+        cJSON_AddStringToObject(body, "text", text);
+    }
+
+    char *json_str = cJSON_PrintUnformatted(body);
+    cJSON_Delete(body);
+    if (!json_str) return ESP_ERR_NO_MEM;
+
+    char *resp = tg_api_call("editMessageText", json_str);
+    free(json_str);
+    if (!resp) return ESP_FAIL;
+
+    const char *desc = NULL;
+    bool ok = tg_response_is_ok(resp, &desc);
+    free(resp);
+
+    if (!ok) {
+        if (desc && strstr(desc, "message is not modified")) {
+            return ESP_OK;
+        }
+        ESP_LOGW(TAG, "editMessageText id=%d failed: %s", (int)message_id, desc ? desc : "unknown");
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+
 esp_err_t telegram_set_token(const char *token)
 {
     nvs_handle_t nvs;
