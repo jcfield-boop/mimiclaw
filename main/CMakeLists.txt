@@ -29,6 +29,7 @@ idf_component_register(
         "tools/tool_device_temp.c"
         "tools/tool_search_files.c"
         "tools/tool_system_info.c"
+        "tools/tool_memory.c"
         "skills/skill_loader.c"
         "led/led_status.c"
     INCLUDE_DIRS

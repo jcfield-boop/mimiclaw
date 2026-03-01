@@ -87,6 +87,7 @@
 #define MIMI_SPIFFS_MEMORY_DIR       "/spiffs/memory"
 #define MIMI_SPIFFS_SESSION_DIR      "/spiffs/sessions"
 #define MIMI_MEMORY_FILE             "/spiffs/memory/MEMORY.md"
+#define MIMI_MEMORY_MAX_BYTES        (6 * 1024)  /* max MEMORY.md size before trim */
 #define MIMI_SOUL_FILE               "/spiffs/config/SOUL.md"
 #define MIMI_USER_FILE               "/spiffs/config/USER.md"
 #define MIMI_CONTEXT_BUF_SIZE        (8 * 1024)  /* 8KB heap: static ~1.7KB + skills ~1KB + memory up to ~5KB */

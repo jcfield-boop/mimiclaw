@@ -8,6 +8,7 @@
 #include "tools/tool_device_temp.h"
 #include "tools/tool_search_files.h"
 #include "tools/tool_system_info.h"
+#include "tools/tool_memory.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -15,7 +16,7 @@
 
 static const char *TAG = "tools";
 
-#define MAX_TOOLS 17
+#define MAX_TOOLS 19
 
 static mimi_tool_t s_tools[MAX_TOOLS];
 static int s_tool_count = 0;
@@ -250,6 +251,47 @@ esp_err_t tool_registry_init(void)
         .execute = tool_http_execute,
     };
     register_tool(&hr);
+
+    /* Register memory_write */
+    mimi_tool_t mw = {
+        .name = "memory_write",
+        .description =
+            "Write a persistent memory to MEMORY.md. Use when the user explicitly shares "
+            "a preference, fact, or standing instruction they want remembered. "
+            "Requires confidence >= 0.7. Do not use for inferences or guesses. "
+            "Rate limited: once per conversation turn, 60s cooldown between turns.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{"
+            "\"memory_type\":{\"type\":\"string\","
+            "\"enum\":[\"preference\",\"fact\",\"instruction\"],"
+            "\"description\":\"Category: preference (user likes/dislikes), fact (factual info about user), instruction (standing order)\"},"
+            "\"content\":{\"type\":\"string\",\"maxLength\":500,"
+            "\"description\":\"The memory to store. Be concise and specific.\"},"
+            "\"confidence\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1,"
+            "\"description\":\"How confident you are this is worth remembering (>= 0.7 required)\"}"
+            "},"
+            "\"required\":[\"memory_type\",\"content\",\"confidence\"]}",
+        .execute = tool_memory_write_execute,
+    };
+    register_tool(&mw);
+
+    /* Register memory_append_today */
+    mimi_tool_t mat = {
+        .name = "memory_append_today",
+        .description =
+            "Append a note to today's daily log file. Use for significant events, "
+            "completed tasks, or things worth a daily record. "
+            "Rate limited: shares the same once-per-turn, 60s cooldown as memory_write.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{"
+            "\"content\":{\"type\":\"string\",\"maxLength\":300,"
+            "\"description\":\"The note to append to today's log.\"}}"
+            ",\"required\":[\"content\"]}",
+        .execute = tool_memory_append_today_execute,
+    };
+    register_tool(&mat);
 
     build_tools_json();
 

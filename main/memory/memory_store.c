@@ -11,9 +11,10 @@
 static const char *TAG = "memory";
 
 /* MEMORY.md will be trimmed to this size when it exceeds the cap.
- * Keeps the most recent content (tail). */
-#define MEMORY_MAX_BYTES   (3 * 1024)
-#define MEMORY_TRIM_BYTES  (2 * 1024)
+ * Keeps the most recent content (tail).
+ * Cap is defined in mimi_config.h as MIMI_MEMORY_MAX_BYTES. */
+#define MEMORY_MAX_BYTES   MIMI_MEMORY_MAX_BYTES
+#define MEMORY_TRIM_BYTES  (MIMI_MEMORY_MAX_BYTES - (1 * 1024))
 
 /* Daily notes older than this many days are automatically deleted. */
 #define MEMORY_DAILY_MAX_DAYS  7

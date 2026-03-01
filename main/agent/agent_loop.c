@@ -7,6 +7,7 @@
 #include "tools/tool_registry.h"
 #include "gateway/ws_server.h"
 #include "led/led_status.h"
+#include "tools/tool_memory.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -216,6 +217,9 @@ static void agent_loop_task(void *arg)
         mimi_msg_t msg;
         esp_err_t err = message_bus_pop_inbound(&msg, UINT32_MAX);
         if (err != ESP_OK) continue;
+
+        /* Reset per-turn memory write flag at the start of each user message */
+        memory_tool_reset_turn();
 
         ESP_LOGI(TAG, "Processing message from %s:%s", msg.channel, msg.chat_id);
         {
