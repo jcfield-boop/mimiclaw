@@ -69,6 +69,14 @@ textarea:focus{border-color:#555}
 .toggle-slider:before{position:absolute;content:"";width:12px;height:12px;left:3px;bottom:3px;background:#888;border-radius:50%;transition:.25s}
 .toggle input:checked+.toggle-slider{background:#2d5a3d}
 .toggle input:checked+.toggle-slider:before{transform:translateX(16px);background:#7ee38e}
+/* Cron panel */
+#cron-panel{flex:1;display:none;flex-direction:column;padding:10px;gap:8px;min-height:0;overflow-y:auto}
+.cron-table{width:100%;border-collapse:collapse;font-size:0.8rem}
+.cron-table th{color:#888;text-align:left;padding:4px 8px;border-bottom:1px solid #333;font-weight:normal;white-space:nowrap}
+.cron-table td{padding:4px 8px;border-bottom:1px solid #2d2d2d;vertical-align:top;word-break:break-word}
+.cron-table tr:hover td{background:#222}
+.ck-every{color:#c8e37e}.ck-at{color:#7ec8e3}.ck-dis{color:#555}
+#cron-status{color:#7ee38e;font-size:0.8rem}
 </style>
 </head>
 <body>
@@ -91,6 +99,7 @@ textarea:focus{border-color:#555}
   <button onclick="showTab('heartbeat',this)">HEARTBEAT.md</button>
   <button onclick="showTab('services',this)">SERVICES.md</button>
   <button onclick="showTab('skills',this)">Skills</button>
+  <button onclick="showTab('crons',this)">Crons</button>
   <button onclick="showTab('settings',this)">Settings</button>
 </nav>
 <div id="content">
@@ -119,6 +128,16 @@ textarea:focus{border-color:#555}
       </div>
       <textarea id="skill-editor" spellcheck="false"></textarea>
     </div>
+  </div>
+  <div id="cron-panel">
+    <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+      <button onclick="loadCronList()">&#x21BA; Refresh</button>
+      <span id="cron-status"></span>
+    </div>
+    <table class="cron-table">
+      <thead><tr><th>Name</th><th>Schedule</th><th>Next run</th><th>Message</th><th></th></tr></thead>
+      <tbody id="cron-body"></tbody>
+    </table>
   </div>
   <div id="settings-panel">
     <div class="settings-row">
@@ -217,10 +236,12 @@ function showTab(tab,btn){
   curTab=tab;
   document.getElementById('log-panel').style.display=tab==='log'?'':'none';
   document.getElementById('chat-bar').style.display=tab==='log'?'flex':'none';
-  document.getElementById('file-panel').style.display=(tab!=='log'&&tab!=='skills'&&tab!=='settings')?'flex':'none';
+  document.getElementById('file-panel').style.display=(tab!=='log'&&tab!=='skills'&&tab!=='crons'&&tab!=='settings')?'flex':'none';
   document.getElementById('skill-panel').style.display=tab==='skills'?'flex':'none';
+  document.getElementById('cron-panel').style.display=tab==='crons'?'flex':'none';
   document.getElementById('settings-panel').style.display=tab==='settings'?'flex':'none';
   if(tab==='skills'){loadSkillList();return}
+  if(tab==='crons'){loadCronList();return}
   if(tab==='settings'){loadConfig();return}
   if(tab!=='log'){
     curFile=tab;
@@ -422,6 +443,58 @@ function saveConfig(){
   .catch(function(){document.getElementById('cfg-status').textContent='Save failed'});
 }
 
+/* ── Cron jobs ── */
+function fmtInterval(s){
+  if(s<60) return 'every '+s+'s';
+  if(s<3600){var m=Math.floor(s/60),r=s%60;return 'every '+m+'m'+(r?r+'s':'');}
+  var h=Math.floor(s/3600),m=Math.floor((s%3600)/60);
+  return 'every '+h+'h'+(m?m+'m':'');
+}
+function fmtCronNext(job,now){
+  if(!job.enabled) return '<span class="ck-dis">disabled</span>';
+  if(!job.next_run||job.next_run<=0) return '<span class="ck-dis">—</span>';
+  var d=job.next_run-now;
+  if(d<0) return '<span class="err">overdue</span>';
+  return 'in '+fmtUptime(d);
+}
+function loadCronList(){
+  setCronStatus('Loading...');
+  fetch('/api/crons')
+  .then(function(r){return r.json()})
+  .then(function(d){
+    setCronStatus('');
+    var tbody=document.getElementById('cron-body');
+    tbody.innerHTML='';
+    if(!d.jobs||!d.jobs.length){
+      tbody.innerHTML='<tr><td colspan="5" style="color:#555;padding:16px 8px">No cron jobs scheduled</td></tr>';
+      return;
+    }
+    d.jobs.forEach(function(j){
+      var tr=document.createElement('tr');
+      var sched=j.kind==='every'
+        ?'<span class="ck-every">'+esc(fmtInterval(j.interval_s))+'</span>'
+        :'<span class="ck-at">at '+esc(new Date(j.at_epoch*1000).toLocaleTimeString())+'</span>';
+      var msg=j.message.length>42?j.message.substring(0,42)+'\u2026':j.message;
+      tr.innerHTML='<td>'+(j.enabled?'':'<span class="ck-dis">\u23f8 </span>')+esc(j.name)+'</td>'
+        +'<td>'+sched+'</td>'
+        +'<td>'+fmtCronNext(j,d.now_epoch)+'</td>'
+        +'<td style="color:#888" title="'+esc(j.message)+'">'+esc(msg)+'</td>'
+        +'<td><button style="font-size:0.75rem;padding:2px 7px;background:#5a1f1f;border-color:#8b3333;color:#ffaaaa"'
+        +' onclick="deleteCron(\''+j.id+'\',\''+esc(j.name)+'\')">&#x2715;</button></td>';
+      tbody.appendChild(tr);
+    });
+  })
+  .catch(function(){setCronStatus('Load failed')});
+}
+function deleteCron(id,name){
+  if(!confirm('Delete cron job "'+name+'"?')) return;
+  fetch('/api/cron?id='+encodeURIComponent(id),{method:'DELETE'})
+  .then(function(r){return r.json()})
+  .then(function(j){if(j.ok)loadCronList();else setCronStatus('Delete failed');})
+  .catch(function(){setCronStatus('Delete failed')});
+}
+function setCronStatus(msg){document.getElementById('cron-status').textContent=msg}
+
 /* ── Chat input ── */
 function sendMsg(){
   var input=document.getElementById('chat-input');
@@ -451,7 +524,7 @@ function doReboot(){
 
 connect();
 fetchSysinfo();
-setInterval(fetchSysinfo,15000);
+setInterval(function(){fetchSysinfo();if(curTab==='crons')loadCronList();},15000);
 </script>
 </body>
 </html>

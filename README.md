@@ -32,18 +32,19 @@ Tested on: ESP32-C6FH4 (revision v0.2).
 
 ## Features
 
-- **Telegram bot** — send messages, get AI replies, full conversation history per chat
-- **Web console** on port 80 — live activity log, file editors, skills manager, memory monitor
+- **Telegram bot** — send messages, get AI replies, full conversation history per chat; LLM responses stream in real time and the placeholder message is edited in place when the answer is ready
+- **Web console** on port 80 — live activity log, file editors, skills manager, cron job inspector, memory monitor
 - **Chat input** in Live Log — send messages directly from the browser without leaving the log view
-- **LLM providers** — Anthropic (Claude), OpenRouter (300+ models), or any OpenAI-compatible endpoint
+- **LLM providers** — Anthropic (Claude), OpenRouter (300+ models), or any OpenAI-compatible endpoint; responses stream via SSE with progress visible in the Live Log
 - **Tool use** — web search (Tavily or Brave Search API), read/write/edit SPIFFS files, cron scheduling, generic HTTPS requests, Gmail SMTP email, chip temperature, SPIFFS grep, device health, Home Assistant control (`ha_request`), Klipper/Moonraker 3D printer control (`klipper_request`)
 - **Skills system** — teach the bot new capabilities via Markdown files; create/edit/delete from the browser
 - **Session memory** — per-chat conversation history stored in SPIFFS; content-byte budget enforced; JSONL compacted automatically each turn
 - **Long-term memory** — persistent MEMORY.md updated by the agent over time
-- **Cron / heartbeat** — schedule recurring tasks and daily briefings
+- **Cron / heartbeat** — schedule recurring tasks and daily briefings; inspect and cancel jobs from the web console Crons tab
 - **OTA updates** — single-bank firmware update via `POST /api/ota` or serial `ota <url>` command
 - **RGB status LED** — WS2812 on GPIO8 indicates boot, WiFi, thinking, tool use, Telegram/email, error, and OOM states via colour and animation
 - **Verbose Logs** — toggle extra diagnostics (WiFi IP, full Telegram text, LLM heap/size) in Settings; persisted in NVS
+- **Crash diagnostics** — uptime and reset reason shown in the web console header; ELF coredump written to flash on panic so `idf.py coredump-info` recovers a full backtrace after a crash
 - **Serial CLI** — configure everything over USB without reflashing
 
 ---
@@ -63,9 +64,10 @@ Browse to `http://<device-ip>` after it connects to WiFi (the IP is printed in t
 | **HEARTBEAT.md** | Recurring task list — the bot checks this on a timer and acts on unchecked `- [ ]` items only |
 | **SERVICES.md** | Third-party service credentials (email, flight APIs, etc.) — readable and editable from the browser |
 | **Skills** | List, create, edit, and delete skill files |
+| **Crons** | Live list of all scheduled cron jobs — name, schedule (e.g. "every 5m"), time until next fire, and the message that will be injected. Supports one-click delete to cancel a job immediately. Refreshes every 15 seconds while the tab is active. |
 | **Settings** | Set LLM provider/model/API key, Web Search API key (Tavily or Brave), and **Verbose Logs** toggle from the browser |
 
-The header shows live free heap, SPIFFS usage, and session token counts (with cost estimate if using OpenRouter), refreshed every 15 seconds.
+The header shows live free heap, SPIFFS usage, session token counts (with cost estimate if using OpenRouter), and uptime with reset reason. Refreshed every 15 seconds. An orange ⚠ warning appears if the last reset was a panic, watchdog, or brownout.
 
 ---
 
@@ -183,6 +185,30 @@ screen /dev/ttyUSB0 115200
 ```
 
 The device IP is printed once on boot. After that, use the **Live Log** tab in the web console for all diagnostics — no USB connection needed.
+
+---
+
+## Crash Diagnostics
+
+The firmware writes a full ELF coredump to the dedicated 64 KB flash partition on any panic or watchdog reset.
+
+**After a crash:**
+
+1. The web console header shows an orange **⚠ panic → up Xs** (or `task_wdt`, `int_wdt`, `brownout`) badge immediately on reconnect.
+2. Plug in USB and run:
+
+```bash
+source ~/esp/esp-idf/export.sh
+idf.py coredump-info -p /dev/cu.usbmodem<N>
+```
+
+This prints the crashed task name, register dump, and full stack backtrace against the ELF symbols in `build/c6po.elf`.
+
+To erase an old coredump so it doesn't confuse the next run, wipe the coredump partition:
+
+```bash
+esptool.py --port /dev/cu.usbmodem<N> erase_region 0x320000 0x10000
+```
 
 ---
 

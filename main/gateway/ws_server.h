@@ -6,10 +6,12 @@
  * Initialize and start the WebSocket/HTTP server on MIMI_WS_PORT.
  *
  * HTTP endpoints:
- *   GET  /                        Serves the web console (spiffs/console/index.html)
- *   GET  /api/file?name=soul|user|memory  Returns file content
- *   POST /api/file?name=soul|user|memory  Writes file content
- *   POST /api/reboot              Triggers esp_restart() after 500 ms
+ *   GET    /                               Serves the web console (embedded binary)
+ *   GET    /api/file?name=soul|user|memory Returns file content
+ *   POST   /api/file?name=soul|user|memory Writes file content
+ *   POST   /api/reboot                     Triggers esp_restart() after 500 ms
+ *   GET    /api/crons                      Returns all cron jobs as JSON
+ *   DELETE /api/cron?id=<id>               Removes a cron job by ID
  *
  * WebSocket endpoint (moved from / to /ws):
  *   WS   /ws   Inbound:  {"type":"message","content":"hello","chat_id":"ws_1"}

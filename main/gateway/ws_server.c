@@ -5,12 +5,14 @@
 #include "tools/tool_web_search.h"
 #include "heartbeat/heartbeat.h"
 #include "ota/ota_manager.h"
+#include "cron/cron_service.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <dirent.h>
 #include <unistd.h>
+#include <time.h>
 #include "esp_log.h"
 #include "esp_http_server.h"
 #include "esp_timer.h"
@@ -624,6 +626,69 @@ static esp_err_t config_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* ── GET /api/crons -> list all cron jobs ───────────────────────────────── */
+
+static esp_err_t crons_get_handler(httpd_req_t *req)
+{
+    const cron_job_t *jobs;
+    int count;
+    cron_list_jobs(&jobs, &count);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "now_epoch", (double)time(NULL));
+    cJSON *arr = cJSON_CreateArray();
+
+    for (int i = 0; i < count; i++) {
+        const cron_job_t *j = &jobs[i];
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "id",      j->id);
+        cJSON_AddStringToObject(item, "name",    j->name);
+        cJSON_AddBoolToObject(item,   "enabled", j->enabled);
+        cJSON_AddStringToObject(item, "kind",    j->kind == CRON_KIND_EVERY ? "every" : "at");
+        if (j->kind == CRON_KIND_EVERY) {
+            cJSON_AddNumberToObject(item, "interval_s", j->interval_s);
+        } else {
+            cJSON_AddNumberToObject(item, "at_epoch",   (double)j->at_epoch);
+        }
+        cJSON_AddStringToObject(item, "message", j->message);
+        cJSON_AddStringToObject(item, "channel", j->channel);
+        cJSON_AddNumberToObject(item, "next_run", (double)j->next_run);
+        cJSON_AddNumberToObject(item, "last_run", (double)j->last_run);
+        cJSON_AddBoolToObject(item,   "delete_after_run", j->delete_after_run);
+        cJSON_AddItemToArray(arr, item);
+    }
+
+    cJSON_AddItemToObject(root, "jobs", arr);
+
+    char *json_str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_str ? json_str : "{\"jobs\":[]}");
+    free(json_str);
+    return ESP_OK;
+}
+
+/* ── DELETE /api/cron?id=<id> -> remove a cron job ──────────────────────── */
+
+static esp_err_t cron_delete_handler(httpd_req_t *req)
+{
+    char query[32] = {0}, id[12] = {0};
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        httpd_query_key_value(query, "id", id, sizeof(id));
+    }
+    if (id[0] == '\0') {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing id");
+        return ESP_OK;
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    esp_err_t err = cron_remove_job(id);
+    httpd_resp_sendstr(req, err == ESP_OK ? "{\"ok\":true}"
+                                          : "{\"ok\":false,\"error\":\"not_found\"}");
+    return ESP_OK;
+}
+
 /* ── OTA handler ────────────────────────────────────────────────────────── */
 
 static esp_err_t ota_post_handler(httpd_req_t *req)
@@ -805,6 +870,22 @@ esp_err_t ws_server_start(void)
         .handler = config_post_handler,
     };
     httpd_register_uri_handler(s_server, &config_post_uri);
+
+    /* Cron list */
+    httpd_uri_t crons_get_uri = {
+        .uri    = "/api/crons",
+        .method = HTTP_GET,
+        .handler = crons_get_handler,
+    };
+    httpd_register_uri_handler(s_server, &crons_get_uri);
+
+    /* Cron delete */
+    httpd_uri_t cron_del_uri = {
+        .uri    = "/api/cron",
+        .method = HTTP_DELETE,
+        .handler = cron_delete_handler,
+    };
+    httpd_register_uri_handler(s_server, &cron_del_uri);
 
     /* OTA firmware update */
     httpd_uri_t ota_uri = {
