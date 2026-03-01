@@ -30,8 +30,11 @@ idf_component_register(
         "tools/tool_search_files.c"
         "tools/tool_system_info.c"
         "tools/tool_memory.c"
+        "tools/lan_request.c"
         "tools/tool_ha.c"
+        "tools/tool_klipper.c"
         "skills/skill_loader.c"
+        "ota/ota_manager.c"
         "led/led_status.c"
     INCLUDE_DIRS
         "."

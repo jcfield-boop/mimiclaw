@@ -36,11 +36,12 @@ Tested on: ESP32-C6FH4 (revision v0.2).
 - **Web console** on port 80 — live activity log, file editors, skills manager, memory monitor
 - **Chat input** in Live Log — send messages directly from the browser without leaving the log view
 - **LLM providers** — Anthropic (Claude), OpenRouter (300+ models), or any OpenAI-compatible endpoint
-- **Tool use** — web search (Tavily or Brave Search API), read/write/edit SPIFFS files, cron scheduling, generic HTTPS requests, Gmail SMTP email, chip temperature, SPIFFS grep, device health
+- **Tool use** — web search (Tavily or Brave Search API), read/write/edit SPIFFS files, cron scheduling, generic HTTPS requests, Gmail SMTP email, chip temperature, SPIFFS grep, device health, Home Assistant control (`ha_request`), Klipper/Moonraker 3D printer control (`klipper_request`)
 - **Skills system** — teach the bot new capabilities via Markdown files; create/edit/delete from the browser
-- **Session memory** — per-chat conversation history stored in SPIFFS
+- **Session memory** — per-chat conversation history stored in SPIFFS; content-byte budget enforced; JSONL compacted automatically each turn
 - **Long-term memory** — persistent MEMORY.md updated by the agent over time
 - **Cron / heartbeat** — schedule recurring tasks and daily briefings
+- **OTA updates** — single-bank firmware update via `POST /api/ota` or serial `ota <url>` command
 - **RGB status LED** — WS2812 on GPIO8 indicates boot, WiFi, thinking, tool use, Telegram/email, error, and OOM states via colour and animation
 - **Verbose Logs** — toggle extra diagnostics (WiFi IP, full Telegram text, LLM heap/size) in Settings; persisted in NVS
 - **Serial CLI** — configure everything over USB without reflashing
@@ -158,13 +159,21 @@ idf.py build
 idf.py -p /dev/ttyUSB0 flash
 ```
 
-**Always use `app-flash` for firmware updates** — it flashes only the application binary and leaves the SPIFFS partition (and everything in it) untouched:
+**Use `app-flash` for routine firmware updates** — it flashes only the application binary and leaves the SPIFFS partition (and everything in it) untouched:
 
 ```bash
 idf.py -p /dev/ttyUSB0 app-flash
 ```
 
-> ⚠️ **Never run `idf.py flash` (full flash) on a running device.** It erases the entire SPIFFS partition — destroying MEMORY.md, daily notes, custom skills, and all agent-written files. MEMORY.md is the long-term brain of the device; losing it means C6PO forgets everything it has learned about you. Full flash is only appropriate for first-time setup on a blank device.
+Or trigger OTA wirelessly — no USB required:
+
+```bash
+curl -X POST http://<device-ip>/api/ota \
+     -H "Content-Type: application/json" \
+     -d '{"url":"https://your-server/c6po.bin"}'
+```
+
+> ⚠️ **Avoid `idf.py flash` (full flash) on a running device.** It rewrites the entire SPIFFS partition from `spiffs_data/` in the repo — overwriting MEMORY.md, daily notes, custom skills, and all agent-written files. Full flash is required when changing the partition table; sync agent-written files back to `spiffs_data/` first (use `GET /api/file?name=memory`, `/api/skills`, etc.).
 
 ### Monitor boot (optional)
 
@@ -271,6 +280,38 @@ Generate an App Password at [myaccount.google.com/apppasswords](https://myaccoun
 
 ---
 
+## Tools: ha_request and klipper_request
+
+Two LAN-aware tools for controlling local services — no external relay needed.
+
+### ha_request
+
+Calls the [Home Assistant REST API](https://developers.home-assistant.io/docs/api/rest/) on your local network. Credentials are read from `SERVICES.md`:
+
+```markdown
+## Home Assistant
+ha_url: http://192.168.x.x:8123
+ha_token: eyJ...your-long-lived-access-token
+```
+
+The tool supports GET and POST, handles TLS automatically, and blocks destructive paths (`/config`, `/restart`).
+
+### klipper_request
+
+Calls the [Moonraker REST API](https://moonraker.readthedocs.io/) for Klipper 3D printer control. Credentials are read from `SERVICES.md`:
+
+```markdown
+## Klipper / Moonraker
+moonraker_url: http://192.168.x.x
+moonraker_apikey:        # optional; leave blank for trusted LAN
+```
+
+Blocked endpoints: `/machine/...` (would reboot the host Pi) and `/server/files/delete`. All other Moonraker endpoints — printer status, temperatures, print job control, gcode — are accessible.
+
+Both tools use a shared `lan_request()` helper that auto-detects TLS from the URL scheme and streams the response into a caller-supplied buffer (no per-request heap allocation).
+
+---
+
 ## Tools: device_temp, search_files, system_info
 
 ### device_temp
@@ -325,7 +366,7 @@ The file survives `app-flash` updates. A template with common sections (Email, F
 
 Skills are Markdown files at `/spiffs/skills/<name>.md`. The agent reads them as part of its system prompt so it knows what capabilities are available and how to use them.
 
-Four built-in skills are installed and kept up to date on every boot:
+Five built-in skills are installed and kept up to date on every boot:
 
 | Skill | Purpose |
 |---|---|
@@ -345,7 +386,7 @@ Create new skills from the **Skills tab** in the web console, or just ask the bo
 
 ## Memory Management
 
-C6PO automatically manages its storage to stay within the 1.9 MB SPIFFS limit:
+C6PO automatically manages its storage to stay within the 832 KB SPIFFS limit:
 
 | File | Behaviour |
 |---|---|
@@ -353,7 +394,7 @@ C6PO automatically manages its storage to stay within the 1.9 MB SPIFFS limit:
 | `SERVICES.md` | Third-party service credentials (email, flight APIs, etc.) — read by the agent only when a skill requires it; never quoted in responses |
 | `MEMORY.md` | The device's long-term brain — survives power cycles and `app-flash`; **erased by full `idf.py flash`** |
 | `memory/YYYY-MM-DD.md` | Daily notes — survive power cycles; older than 7 days deleted on boot |
-| Sessions (`sessions/*.json`) | Each chat capped at 15 messages; use `session_clear <id>` to reset |
+| Sessions (`sessions/*.json`) | Each chat capped at 15 messages (6 KB content-byte budget); JSONL compacted each turn; use `session_clear <id>` to reset |
 | Skills (`skills/*.md`) | Built-ins refreshed on every boot; custom skills survive `app-flash` |
 
 ---
@@ -379,6 +420,7 @@ Connect at 115200 baud and type `help` for the full command list. Key commands:
 | `session_list` | List active chat sessions |
 | `session_clear <id>` | Clear conversation history for a chat |
 | `skill_list` | List installed skills |
+| `ota <url>` | Download and apply OTA firmware update from URL |
 | `restart` | Reboot the device |
 
 ---
@@ -387,13 +429,19 @@ Connect at 115200 baud and type `help` for the full command list. Key commands:
 
 ```
 nvs       0x9000   24KB   NVS config
-phy_init  0xf000    4KB   RF calibration
-factory  0x10000    2MB   Firmware
-spiffs  0x210000  1.9MB   Files (web console, config, skills, sessions)
-coredump 0x3f0000  64KB   Crash dumps
+phy_init  0xF000    4KB   RF calibration
+otadata  0x10000    8KB   OTA slot tracking
+factory  0x20000  1.5MB   Firmware (active slot on first boot)
+ota_0   0x1A0000  1.5MB   OTA update target slot
+coredump 0x320000  64KB   Crash dumps
+spiffs  0x330000  832KB   Files (web console, config, skills, sessions)
 ```
 
-No OTA — firmware updates are via USB only.
+**OTA updates** are supported via a single-bank scheme (factory + ota_0). The first OTA writes to `ota_0` and reboots into it; subsequent OTAs alternate between slots. Trigger from the web console (`POST /api/ota`) or serial CLI (`ota <url>`).
+
+> ⚠️ Changing the partition table requires a **full flash** (`idf.py flash`), which also rewrites SPIFFS from `spiffs_data/`. Sync any agent-written files (MEMORY.md, skills, SERVICES.md) back to `spiffs_data/` first — the web console **API** endpoints (`GET /api/file?name=memory`, `/api/skill?name=<n>`) make this easy.
+
+For routine firmware updates on a running device, use `ota <url>` or `POST /api/ota` instead — SPIFFS is not touched.
 
 ---
 
@@ -401,10 +449,11 @@ No OTA — firmware updates are via USB only.
 
 | Resource | Value |
 |---|---|
-| Free heap at boot | ~369 KB |
-| SPIFFS | 1.9 MB |
-| Max session history | 15 messages |
+| Free heap at boot | ~218 KB |
+| SPIFFS | 832 KB |
+| Max session history | 15 messages (content-byte budget: 6 KB) |
 | LLM response buffer | 8 KB |
+| Max LLM output tokens | 1000 |
 
 ---
 
@@ -415,7 +464,7 @@ No OTA — firmware updates are via USB only.
 | Flash | 16 MB | 4 MB |
 | PSRAM | 8 MB | None |
 | Cores | 2 | 1 |
-| OTA updates | Yes | No (USB only) |
+| OTA updates | Yes | Yes (single-bank, via URL) |
 | IMU | Yes | Disabled |
 | LLM buffer | 32 KB | 8 KB |
 | Session history | 20 msgs | 15 msgs |

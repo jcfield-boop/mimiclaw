@@ -1,7 +1,17 @@
 # Name,    Type, SubType, Offset,   Size,    Flags
-# ESP32-C6 Partition Table (4MB Flash - No OTA Support)
+# ESP32-C6 4MB Flash — single-bank OTA
+#   factory (1.5 MB): factory fallback; never overwritten after first OTA
+#   ota_0   (1.5 MB): active OTA target slot
+#   SPIFFS  (832 KB): config / memory / skills  (was 1.9 MB; current usage ~310 KB)
+#
+# Binary ceiling: 1.5 MB (0x180000).  Current build: ~1.36 MB.  Headroom: ~140 KB.
+#
+# ⚠  Changing this table requires a full flash.  Back up SPIFFS first.
+#    SPIFFS moves from 0x210000 → 0x330000.
 nvs,       data, nvs,     0x9000,   0x6000,
 phy_init,  data, phy,     0xF000,   0x1000,
-factory,   app,  factory, 0x10000,  0x200000,
-spiffs,    data, spiffs,  0x210000, 0x1E0000,
-coredump,  data, coredump,0x3F0000, 0x10000,
+otadata,   data, ota,     0x10000,  0x2000,
+factory,   app,  factory, 0x20000,  0x180000,
+ota_0,     app,  ota_0,   0x1A0000, 0x180000,
+coredump,  data, coredump,0x320000, 0x10000,
+spiffs,    data, spiffs,  0x330000, 0xD0000,

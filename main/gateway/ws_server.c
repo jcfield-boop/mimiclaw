@@ -4,6 +4,7 @@
 #include "llm/llm_proxy.h"
 #include "tools/tool_web_search.h"
 #include "heartbeat/heartbeat.h"
+#include "ota/ota_manager.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -600,6 +601,48 @@ static esp_err_t config_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* ── OTA handler ────────────────────────────────────────────────────────── */
+
+static esp_err_t ota_post_handler(httpd_req_t *req)
+{
+    char body[300] = {0};
+    int  rcv = httpd_req_recv(req, body, sizeof(body) - 1);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+    if (rcv <= 0) {
+        httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"no body\"}");
+        return ESP_OK;
+    }
+
+    cJSON *root = cJSON_Parse(body);
+    if (!root) {
+        httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"invalid JSON\"}");
+        return ESP_OK;
+    }
+
+    cJSON *jurl = cJSON_GetObjectItem(root, "url");
+    if (!cJSON_IsString(jurl) || !jurl->valuestring[0]) {
+        cJSON_Delete(root);
+        httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"missing url\"}");
+        return ESP_OK;
+    }
+
+    esp_err_t err = ota_start_async(jurl->valuestring);
+    cJSON_Delete(root);
+
+    if (err == ESP_OK) {
+        httpd_resp_sendstr(req, "{\"ok\":true,\"status\":\"updating\"}");
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"ota_already_running\"}");
+    } else if (err == ESP_ERR_NO_MEM) {
+        httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"low_heap\"}");
+    } else {
+        httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"task_failed\"}");
+    }
+    return ESP_OK;
+}
+
 /* ── Public API ──────────────────────────────────────────────────────────── */
 
 esp_err_t ws_server_start(void)
@@ -621,7 +664,7 @@ esp_err_t ws_server_start(void)
     config.ctrl_port         = MIMI_WS_PORT + 1;
     config.max_open_sockets  = 4; /* lwIP max_sockets(8) minus 3 internal = 5 max; use 4 to be safe */
     config.stack_size        = 8192;                     /* SPIFFS I/O needs headroom */
-    config.max_uri_handlers  = 16;
+    config.max_uri_handlers  = 17;
 
     esp_err_t ret = httpd_start(&s_server, &config);
     if (ret != ESP_OK) {
@@ -734,6 +777,14 @@ esp_err_t ws_server_start(void)
         .handler = config_post_handler,
     };
     httpd_register_uri_handler(s_server, &config_post_uri);
+
+    /* OTA firmware update */
+    httpd_uri_t ota_uri = {
+        .uri    = "/api/ota",
+        .method = HTTP_POST,
+        .handler = ota_post_handler,
+    };
+    httpd_register_uri_handler(s_server, &ota_uri);
 
     ESP_LOGI(TAG, "Server started on port %d (WS: /ws, Console: /)", MIMI_WS_PORT);
     return ESP_OK;

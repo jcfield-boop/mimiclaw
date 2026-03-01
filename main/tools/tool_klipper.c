@@ -1,4 +1,4 @@
-#include "tool_ha.h"
+#include "tool_klipper.h"
 #include "lan_request.h"
 
 #include <string.h>
@@ -8,19 +8,19 @@
 #include "cJSON.h"
 #include "gateway/ws_server.h"
 
-static const char *TAG = "tool_ha";
+static const char *TAG = "tool_klipper";
 
-/* Max bytes of HA response body returned to the model */
-#define HA_BODY_MAX     2048
+/* Max bytes of Moonraker response body returned to the model */
+#define KLIPPER_BODY_MAX    2048
 
 /* ── SERVICES.md parser ──────────────────────────────────────── */
 
 typedef struct {
-    char url[128];    /* e.g. "http://192.168.0.50:8123" */
-    char token[256];  /* Long-Lived Access Token */
-} ha_creds_t;
+    char url[128];     /* e.g. "http://192.168.0.100:7125" */
+    char apikey[128];  /* optional — empty if no auth configured */
+} klipper_creds_t;
 
-static bool parse_ha_creds(ha_creds_t *c)
+static bool parse_klipper_creds(klipper_creds_t *c)
 {
     memset(c, 0, sizeof(*c));
 
@@ -36,39 +36,37 @@ static bool parse_ha_creds(ha_creds_t *c)
                            line[len-1] == ' '))
             line[--len] = '\0';
 
-        if (strcmp(line, "## Home Assistant") == 0) { in_section = true;  continue; }
+        if (strcmp(line, "## Klipper / Moonraker") == 0) { in_section = true; continue; }
         if (in_section && len > 1 && line[0] == '#') break;
         if (!in_section || len == 0 || line[0] == '#') continue;
 
         char *colon = strchr(line, ':');
         if (!colon) continue;
-        /* ha_token contains colons — only split on the first one */
         *colon = '\0';
         const char *key = line;
         const char *val = colon + 1;
         while (*val == ' ') val++;
 
-        if      (strcmp(key, "ha_url")   == 0) strncpy(c->url,   val, sizeof(c->url)   - 1);
-        else if (strcmp(key, "ha_token") == 0) strncpy(c->token, val, sizeof(c->token) - 1);
+        if      (strcmp(key, "moonraker_url")    == 0) strncpy(c->url,    val, sizeof(c->url)    - 1);
+        else if (strcmp(key, "moonraker_apikey") == 0) strncpy(c->apikey, val, sizeof(c->apikey) - 1);
     }
 
     fclose(f);
-    return c->url[0] != '\0' && c->token[0] != '\0';
+    return c->url[0] != '\0';  /* URL required; apikey optional */
 }
 
 /* ── Endpoint blocking ───────────────────────────────────────── */
 
-/* Returns true if the endpoint must be blocked.
- * - /api/config*          blocked (exposes HA secrets)
- * - /api/services/hassio* blocked (supervisor / add-on access)
- * - /api/states exactly   blocked (bulk dump — heap risk)
- * - /api/states/...       ALLOWED (specific entity endpoint)
+/* Block dangerous Moonraker machine/system endpoints.
+ * /machine/... can reboot or shut down the host Raspberry Pi.
+ * /server/files/delete is blocked to prevent accidental gcode loss.
+ * Everything else (printer status, temps, print control) is allowed.
  */
 static bool endpoint_blocked(const char *ep)
 {
     static const char * const BLOCKED_PREFIXES[] = {
-        "/api/config",
-        "/api/services/hassio",
+        "/machine",          /* system power / update manager */
+        "/server/files/delete",
         NULL
     };
     for (int i = 0; BLOCKED_PREFIXES[i]; i++) {
@@ -77,15 +75,13 @@ static bool endpoint_blocked(const char *ep)
             return true;
         }
     }
-    /* Exact /api/states blocked; /api/states/<entity> is fine */
-    if (strcmp(ep, "/api/states") == 0) return true;
     return false;
 }
 
-/* ── Helper: write structured JSON error into output ─────────── */
+/* ── Helper: write structured JSON error ─────────────────────── */
 
-static void ha_err(char *out, size_t out_size, int status,
-                   const char *error, const char *reason)
+static void klipper_err(char *out, size_t out_size, int status,
+                        const char *error, const char *reason)
 {
     snprintf(out, out_size,
              "{\"ok\":false,\"status\":%d,\"error\":\"%s\","
@@ -95,12 +91,11 @@ static void ha_err(char *out, size_t out_size, int status,
 
 /* ── Tool entry point ────────────────────────────────────────── */
 
-esp_err_t tool_ha_execute(const char *input_json, char *output, size_t output_size)
+esp_err_t tool_klipper_execute(const char *input_json, char *output, size_t output_size)
 {
-    /* Parse input */
     cJSON *root = cJSON_Parse(input_json);
     if (!root) {
-        ha_err(output, output_size, 0, "parse_error", "Invalid JSON input");
+        klipper_err(output, output_size, 0, "parse_error", "Invalid JSON input");
         return ESP_OK;
     }
 
@@ -118,57 +113,53 @@ esp_err_t tool_ha_execute(const char *input_json, char *output, size_t output_si
 
     if (!endpoint || endpoint[0] == '\0') {
         cJSON_Delete(root);
-        ha_err(output, output_size, 0, "missing_endpoint", "endpoint is required");
+        klipper_err(output, output_size, 0, "missing_endpoint", "endpoint is required");
         return ESP_OK;
     }
 
-    if (strncmp(endpoint, "/api/", 5) != 0) {
+    if (endpoint[0] != '/') {
         cJSON_Delete(root);
-        ha_err(output, output_size, 0, "invalid_endpoint",
-               "endpoint must start with /api/");
+        klipper_err(output, output_size, 0, "invalid_endpoint",
+                    "endpoint must start with /");
         return ESP_OK;
     }
 
     if (endpoint_blocked(endpoint)) {
         cJSON_Delete(root);
-        ha_err(output, output_size, 0, "blocked_endpoint",
-               "endpoint not permitted for security reasons");
-        ESP_LOGW(TAG, "Blocked HA endpoint: %s", endpoint);
+        klipper_err(output, output_size, 0, "blocked_endpoint",
+                    "endpoint not permitted for safety reasons");
+        ESP_LOGW(TAG, "Blocked Klipper endpoint: %s", endpoint);
         return ESP_OK;
     }
 
-    /* Load credentials */
-    ha_creds_t creds;
-    if (!parse_ha_creds(&creds)) {
+    klipper_creds_t creds;
+    if (!parse_klipper_creds(&creds)) {
         cJSON_Delete(root);
-        ha_err(output, output_size, 0, "no_credentials",
-               "SERVICES.md missing ## Home Assistant section with ha_url and ha_token");
+        klipper_err(output, output_size, 0, "no_credentials",
+                    "SERVICES.md missing ## Klipper / Moonraker section with moonraker_url");
         return ESP_OK;
     }
 
-    /* Build Authorization header value: "Bearer <token>" */
-    char auth_header[300];
-    snprintf(auth_header, sizeof(auth_header), "Bearer %s", creds.token);
-    memset(creds.token, 0, sizeof(creds.token));  /* zero token — now in auth_header */
+    /* API key header — optional (NULL if no key configured) */
+    const char *auth_header = creds.apikey[0] ? "X-Api-Key" : NULL;
+    const char *auth_value  = creds.apikey[0] ? creds.apikey : NULL;
 
-    /* Allocate response buffer */
-    char *resp_buf = malloc(HA_BODY_MAX + 1);
+    char *resp_buf = malloc(KLIPPER_BODY_MAX + 1);
     if (!resp_buf) {
         cJSON_Delete(root);
-        memset(auth_header, 0, sizeof(auth_header));
-        ha_err(output, output_size, 0, "no_mem", "ESP_ERR_NO_MEM");
+        klipper_err(output, output_size, 0, "no_mem", "ESP_ERR_NO_MEM");
         return ESP_OK;
     }
 
     lan_result_t result;
     lan_request(method, creds.url, endpoint,
-                "Authorization", auth_header,
+                auth_header, auth_value,
                 body_str,
-                resp_buf, HA_BODY_MAX + 1,
+                resp_buf, KLIPPER_BODY_MAX + 1,
                 &result);
 
     cJSON_Delete(root);
-    memset(auth_header, 0, sizeof(auth_header));
+    memset(creds.apikey, 0, sizeof(creds.apikey));
 
     lan_result_to_json(&result, resp_buf, output, output_size);
     free(resp_buf);
@@ -178,9 +169,9 @@ esp_err_t tool_ha_execute(const char *input_json, char *output, size_t output_si
         snprintf(mon, sizeof(mon), "%s %s → %d (%d bytes%s)",
                  method, endpoint, result.http_status, result.bytes,
                  result.truncated ? ", truncated" : "");
-        ws_server_broadcast_monitor("ha", mon);
+        ws_server_broadcast_monitor("klipper", mon);
     }
-    ESP_LOGI(TAG, "HA %s %s → %d (%d bytes%s)",
+    ESP_LOGI(TAG, "Klipper %s %s → %d (%d bytes%s)",
              method, endpoint, result.http_status, result.bytes,
              result.truncated ? " truncated" : "");
 

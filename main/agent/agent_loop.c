@@ -201,12 +201,11 @@ static void agent_loop_task(void *arg)
 {
     ESP_LOGI(TAG, "Agent loop started on core %d", xPortGetCoreID());
 
-    /* Allocate large buffers from internal SRAM (ESP32-C6 has no PSRAM) */
-    char *system_prompt = calloc(1, MIMI_CONTEXT_BUF_SIZE);
-    char *history_json = calloc(1, MIMI_LLM_STREAM_BUF_SIZE);
-    char *tool_output = calloc(1, TOOL_OUTPUT_SIZE);
+    /* Allocate large persistent buffers (ESP32-C6: no PSRAM, all in 512KB SRAM) */
+    char *system_prompt = calloc(1, MIMI_CONTEXT_BUF_SIZE);  /* 12KB */
+    char *tool_output   = calloc(1, TOOL_OUTPUT_SIZE);        /*  8KB */
 
-    if (!system_prompt || !history_json || !tool_output) {
+    if (!system_prompt || !tool_output) {
         ESP_LOGE(TAG, "Failed to allocate buffers");
         vTaskDelete(NULL);
         return;
@@ -234,20 +233,47 @@ static void agent_loop_task(void *arg)
         append_turn_context_prompt(system_prompt, MIMI_CONTEXT_BUF_SIZE, &msg);
         ESP_LOGI(TAG, "LLM turn context: channel=%s chat_id=%s", msg.channel, msg.chat_id);
 
-        /* 2. Load session history into cJSON array */
-        session_get_history_json(msg.chat_id, history_json,
-                                 MIMI_LLM_STREAM_BUF_SIZE, MIMI_AGENT_MAX_HISTORY);
+        /* 2. Load session history directly as cJSON (no serialize→parse round-trip) */
+        cJSON *messages = session_get_history_cjson(msg.chat_id, MIMI_AGENT_MAX_HISTORY);
 
-        cJSON *messages = cJSON_Parse(history_json);
-        if (!messages) messages = cJSON_CreateArray();
-
+        /* 2a. Content-byte budget: drop oldest user/assistant pairs until the
+         *     total content length fits within MIMI_SESSION_HISTORY_MAX_BYTES.
+         *     This caps token cost and heap usage for long-running sessions. */
         {
-            char vmsg[80];
-            snprintf(vmsg, sizeof(vmsg), "agent ctx: %d msgs, prompt %d bytes, heap %u free",
-                     cJSON_GetArraySize(messages),
-                     (int)strnlen(system_prompt, MIMI_CONTEXT_BUF_SIZE),
-                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
-            ws_server_broadcast_monitor_verbose("task", vmsg);
+            int total_chars = 0;
+            int arr_size = cJSON_GetArraySize(messages);
+            for (int i = 0; i < arr_size; i++) {
+                cJSON *m = cJSON_GetArrayItem(messages, i);
+                cJSON *c = cJSON_GetObjectItemCaseSensitive(m, "content");
+                if (c && cJSON_IsString(c))
+                    total_chars += (int)strlen(c->valuestring);
+            }
+            int dropped = 0;
+            while (total_chars > MIMI_SESSION_HISTORY_MAX_BYTES &&
+                   cJSON_GetArraySize(messages) >= 2) {
+                cJSON *oldest = cJSON_GetArrayItem(messages, 0);
+                cJSON *c = cJSON_GetObjectItemCaseSensitive(oldest, "content");
+                if (c && cJSON_IsString(c))
+                    total_chars -= (int)strlen(c->valuestring);
+                cJSON_DeleteItemFromArray(messages, 0);
+                dropped++;
+            }
+            if (dropped > 0) {
+                char vmsg[64];
+                snprintf(vmsg, sizeof(vmsg), "history trimmed: dropped %d msgs (%d bytes remain)",
+                         dropped, total_chars);
+                ws_server_broadcast_monitor_verbose("task", vmsg);
+            }
+
+            {
+                char vmsg[96];
+                snprintf(vmsg, sizeof(vmsg),
+                         "agent ctx: %d msgs, ~%d hist bytes, prompt %d bytes, heap %u free",
+                         cJSON_GetArraySize(messages), total_chars,
+                         (int)strnlen(system_prompt, MIMI_CONTEXT_BUF_SIZE),
+                         (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+                ws_server_broadcast_monitor_verbose("task", vmsg);
+            }
         }
 
         /* 3. Append current user message */
@@ -387,6 +413,10 @@ static void agent_loop_task(void *arg)
             } else {
                 ESP_LOGI(TAG, "Session saved for chat %s", msg.chat_id);
             }
+
+            /* Compact the session file to MIMI_SESSION_MAX_MSGS lines.
+             * Prevents unbounded disk growth; runs once per turn after saves. */
+            session_trim(msg.chat_id, MIMI_SESSION_MAX_MSGS);
 
             /* Push response to outbound */
             mimi_msg_t out = {0};

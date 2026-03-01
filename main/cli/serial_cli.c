@@ -11,6 +11,7 @@
 #include "cron/cron_service.h"
 #include "heartbeat/heartbeat.h"
 #include "skills/skill_loader.h"
+#include "ota/ota_manager.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -537,6 +538,32 @@ static int cmd_tool_exec(int argc, char **argv)
     return (err == ESP_OK) ? 0 : 1;
 }
 
+/* --- ota command --- */
+static struct {
+    struct arg_str *url;
+    struct arg_end *end;
+} ota_args;
+
+static int cmd_ota(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&ota_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, ota_args.end, argv[0]);
+        return 1;
+    }
+
+    const char *url = ota_args.url->sval[0];
+    printf("Starting OTA from: %s\n", url);
+    printf("Progress will appear in the live log. Device will reboot on success.\n");
+
+    esp_err_t err = ota_update_from_url(url);
+    if (err != ESP_OK) {
+        printf("OTA failed: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    return 0;  /* unreachable on success (device reboots) */
+}
+
 /* --- restart command --- */
 static int cmd_restart(int argc, char **argv)
 {
@@ -788,6 +815,17 @@ esp_err_t serial_cli_init(void)
         .func = &cmd_tool_exec,
     };
     esp_console_cmd_register(&tool_exec_cmd);
+
+    /* ota */
+    ota_args.url = arg_str1(NULL, NULL, "<url>", "HTTPS URL to firmware .bin file");
+    ota_args.end = arg_end(1);
+    esp_console_cmd_t ota_cmd = {
+        .command = "ota",
+        .help = "Update firmware over WiFi: ota https://host/path/firmware.bin",
+        .func  = &cmd_ota,
+        .argtable = &ota_args,
+    };
+    esp_console_cmd_register(&ota_cmd);
 
     /* restart */
     esp_console_cmd_t restart_cmd = {

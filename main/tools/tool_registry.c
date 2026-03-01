@@ -10,6 +10,7 @@
 #include "tools/tool_system_info.h"
 #include "tools/tool_memory.h"
 #include "tools/tool_ha.h"
+#include "tools/tool_klipper.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -316,6 +317,29 @@ esp_err_t tool_registry_init(void)
         .execute = tool_ha_execute,
     };
     register_tool(&ha);
+
+    /* Register klipper_request */
+    mimi_tool_t kl = {
+        .name = "klipper_request",
+        .description =
+            "Query or control a Klipper 3D printer via Moonraker's REST API. "
+            "Use for printer status, temperatures, print jobs, and gcode commands. "
+            "Reads moonraker_url (and optional moonraker_apikey) from SERVICES.md. "
+            "Machine/system power endpoints are blocked for safety.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{"
+            "\"method\":{\"type\":\"string\",\"enum\":[\"GET\",\"POST\"],"
+            "\"description\":\"HTTP method\"},"
+            "\"endpoint\":{\"type\":\"string\","
+            "\"description\":\"Moonraker API path (e.g. /printer/info, /printer/objects/query?heater_bed&extruder)\"},"
+            "\"body\":{\"type\":\"string\","
+            "\"description\":\"JSON body for POST requests (e.g. {\\\"script\\\":\\\"G28\\\"})\"}"
+            "},"
+            "\"required\":[\"method\",\"endpoint\"]}",
+        .execute = tool_klipper_execute,
+    };
+    register_tool(&kl);
 
     build_tools_json();
 

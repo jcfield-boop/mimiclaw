@@ -40,6 +40,16 @@ esp_err_t session_get_history_json(const char *chat_id, char *buf, size_t size, 
 cJSON *session_get_history_cjson(const char *chat_id, int max_msgs);
 
 /**
+ * Compact a session file to at most max_msgs lines.
+ * Uses two-pass file I/O: first counts lines, then rewrites keeping the last max_msgs.
+ * Safe to call after every session_append(); no-ops if already compact.
+ *
+ * @param chat_id   Session identifier
+ * @param max_msgs  Maximum number of lines (messages) to retain
+ */
+esp_err_t session_trim(const char *chat_id, int max_msgs);
+
+/**
  * Clear a session (delete the file).
  */
 esp_err_t session_clear(const char *chat_id);

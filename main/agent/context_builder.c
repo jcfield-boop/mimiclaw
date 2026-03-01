@@ -50,6 +50,7 @@ esp_err_t context_build_system_prompt(char *buf, size_t size)
         "- memory_write: ONLY way to persistently save a user preference, fact, or instruction\n"
         "- memory_append_today: append a note to today's daily log\n"
         "- ha_request: query/control Home Assistant (lights, switches, climate, automations)\n"
+        "- klipper_request: query/control Klipper 3D printer via Moonraker REST API\n"
         "Use tools when needed.\n\n"
         "## Never answer from training data\n"
         "For anything that changes over time — stock prices, sports scores, weather, news,\n"

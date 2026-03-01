@@ -92,6 +92,7 @@
 #define MIMI_USER_FILE               "/spiffs/config/USER.md"
 #define MIMI_CONTEXT_BUF_SIZE        (12 * 1024) /* 12KB heap: preamble ~1.5KB + USER.md ~2KB + skills ~2KB + memory ~6KB */
 #define MIMI_SESSION_MAX_MSGS        15  /* Reduced from 20 for ESP32-C6 to save memory */
+#define MIMI_SESSION_HISTORY_MAX_BYTES (6 * 1024) /* Drop oldest pairs when content exceeds this */
 
 /* Cron / Heartbeat */
 #define MIMI_CRON_FILE               "/spiffs/cron.json"
