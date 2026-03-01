@@ -9,6 +9,7 @@
 #include "tools/tool_search_files.h"
 #include "tools/tool_system_info.h"
 #include "tools/tool_memory.h"
+#include "tools/tool_ha.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -16,7 +17,7 @@
 
 static const char *TAG = "tools";
 
-#define MAX_TOOLS 19
+#define MAX_TOOLS 20
 
 static mimi_tool_t s_tools[MAX_TOOLS];
 static int s_tool_count = 0;
@@ -292,6 +293,29 @@ esp_err_t tool_registry_init(void)
         .execute = tool_memory_append_today_execute,
     };
     register_tool(&mat);
+
+    /* Register ha_request */
+    mimi_tool_t ha = {
+        .name = "ha_request",
+        .description =
+            "Query or control Home Assistant via its REST API. "
+            "Use for entity state, service calls (lights, switches, climate), and automations. "
+            "Reads ha_url and ha_token from SERVICES.md. "
+            "Always use specific entity endpoints — /api/states bulk is blocked.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{"
+            "\"method\":{\"type\":\"string\",\"enum\":[\"GET\",\"POST\"],"
+            "\"description\":\"HTTP method\"},"
+            "\"endpoint\":{\"type\":\"string\","
+            "\"description\":\"HA API path starting with /api/ (e.g. /api/states/light.living_room)\"},"
+            "\"body\":{\"type\":\"string\","
+            "\"description\":\"JSON body for POST requests (e.g. {\\\"entity_id\\\":\\\"light.x\\\"})\"}"
+            "},"
+            "\"required\":[\"method\",\"endpoint\"]}",
+        .execute = tool_ha_execute,
+    };
+    register_tool(&ha);
 
     build_tools_json();
 
