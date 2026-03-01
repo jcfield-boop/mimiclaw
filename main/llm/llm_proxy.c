@@ -883,7 +883,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
 
 /* ── SSE Streaming ────────────────────────────────────────────── */
 
-#define SSE_LINE_MAX   512
+#define SSE_LINE_MAX   2048  /* large enough for tool-call arg chunks */
 #define SSE_TC_MAX     MIMI_MAX_TOOL_CALLS
 
 /* Rate-limit thresholds for progress callbacks */

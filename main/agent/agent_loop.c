@@ -277,7 +277,9 @@ static void agent_loop_task(void *arg)
                     total_chars += (int)strlen(c->valuestring);
             }
             int dropped = 0;
-            while (total_chars > MIMI_SESSION_HISTORY_MAX_BYTES &&
+            int drop_limit = arr_size; /* H3: cap drops to initial count — prevents infinite loop if any single msg exceeds budget */
+            while (dropped < drop_limit &&
+                   total_chars > MIMI_SESSION_HISTORY_MAX_BYTES &&
                    cJSON_GetArraySize(messages) >= 2) {
                 cJSON *oldest = cJSON_GetArrayItem(messages, 0);
                 cJSON *c = cJSON_GetObjectItemCaseSensitive(oldest, "content");
@@ -409,6 +411,11 @@ static void agent_loop_task(void *arg)
                 if (resp.text && resp.text_len > 0) {
                     final_text = strdup(resp.text);
                     llm_response_free(&resp);
+                    if (!final_text) {
+                        /* M8: strdup OOM — treat as memory exhaustion */
+                        ESP_LOGE(TAG, "strdup OOM for final_text (%d bytes)", (int)resp.text_len);
+                        oom_restart = true;
+                    }
                     break;
                 }
                 /* Empty response: if truncated at max_tokens, inject recovery once */

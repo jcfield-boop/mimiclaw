@@ -195,7 +195,16 @@ static void install_builtin(const builtin_skill_t *skill)
     char path[64];
     snprintf(path, sizeof(path), "%s%s.md", MIMI_SKILLS_PREFIX, skill->filename);
 
-    /* Always overwrite built-in skills so firmware updates take effect on boot */
+    /* L3: Only write if missing — preserves user edits across firmware updates.
+     * (Previously always overwrote; that discarded any customisation made via
+     * the web editor or agent skill-creator tool.) */
+    FILE *test = fopen(path, "r");
+    if (test) {
+        fclose(test);
+        ESP_LOGD(TAG, "Built-in skill already present, keeping user version: %s", path);
+        return;
+    }
+
     FILE *f = fopen(path, "w");
     if (!f) {
         ESP_LOGE(TAG, "Cannot write skill: %s", path);
@@ -316,6 +325,9 @@ static void extract_when_to_use(FILE *f, char *out, size_t out_size)
     out[off] = '\0';
 }
 
+/* M9: soft cap to prevent overflowing the system-prompt slot for skills */
+#define SKILL_SUMMARY_SOFT_CAP 1800
+
 size_t skill_loader_build_summary(char *buf, size_t size)
 {
     DIR *dir = opendir(MIMI_SPIFFS_BASE);
@@ -377,6 +389,15 @@ size_t skill_loader_build_summary(char *buf, size_t size)
             off += snprintf(buf + off, size - off,
                 "- **%s**: %s → MUST call: read_file %s\n",
                 title, desc, full_path);
+        }
+
+        /* M9: stop appending once we hit the soft cap to avoid overflowing
+         * the system-prompt slot allocated for skills. */
+        if (off >= SKILL_SUMMARY_SOFT_CAP) {
+            off += snprintf(buf + off, size - off,
+                "(additional skills available — use list_dir on %s to see all)\n",
+                MIMI_SKILLS_PREFIX);
+            break;
         }
     }
 

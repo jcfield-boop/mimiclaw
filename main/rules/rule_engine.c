@@ -220,13 +220,35 @@ static bool evaluate_condition(const rule_t *rule, char *tool_output, size_t out
 
     switch (rule->condition_op) {
         case RULE_OP_GT: {
-            double fv = strtod(field_val, NULL);
-            double cv = strtod(rule->condition_value, NULL);
+            char *ep;
+            double fv = strtod(field_val, &ep);
+            if (ep == field_val) {
+                ESP_LOGW(TAG, "Rule %s: GT: field '%s' value '%s' is not numeric",
+                         rule->id, rule->condition_field, field_val);
+                return false;
+            }
+            double cv = strtod(rule->condition_value, &ep);
+            if (ep == rule->condition_value) {
+                ESP_LOGW(TAG, "Rule %s: GT: threshold '%s' is not numeric",
+                         rule->id, rule->condition_value);
+                return false;
+            }
             return fv > cv;
         }
         case RULE_OP_LT: {
-            double fv = strtod(field_val, NULL);
-            double cv = strtod(rule->condition_value, NULL);
+            char *ep;
+            double fv = strtod(field_val, &ep);
+            if (ep == field_val) {
+                ESP_LOGW(TAG, "Rule %s: LT: field '%s' value '%s' is not numeric",
+                         rule->id, rule->condition_field, field_val);
+                return false;
+            }
+            double cv = strtod(rule->condition_value, &ep);
+            if (ep == rule->condition_value) {
+                ESP_LOGW(TAG, "Rule %s: LT: threshold '%s' is not numeric",
+                         rule->id, rule->condition_value);
+                return false;
+            }
             return fv < cv;
         }
         case RULE_OP_EQ:
@@ -267,10 +289,8 @@ static void fire_action(const rule_t *rule)
             break;
         }
         case RULE_ACTION_EMAIL: {
-            /* Build send_email tool call input */
-            /* subject[128] + body[192] + JSON overhead ~28 = 348 minimum */
-            char email_input[360];
-            /* action_params format: "subject|body" */
+            /* action_params format: "subject|body"
+             * M2: Use cJSON to build JSON so " and \ in params are safely escaped. */
             char subject[128] = {0};
             char body[192]    = {0};
             const char *pipe = strchr(rule->action_params, '|');
@@ -283,10 +303,16 @@ static void fire_action(const rule_t *rule)
                 strncpy(subject, rule->action_params, sizeof(subject) - 1);
                 strncpy(body, rule->action_params, sizeof(body) - 1);
             }
-            snprintf(email_input, sizeof(email_input),
-                     "{\"subject\":\"%s\",\"body\":\"%s\"}", subject, body);
-            char email_out[256];
-            tool_registry_execute("send_email", email_input, email_out, sizeof(email_out));
+            cJSON *ej = cJSON_CreateObject();
+            cJSON_AddStringToObject(ej, "subject", subject);
+            cJSON_AddStringToObject(ej, "body",    body);
+            char *email_input = cJSON_PrintUnformatted(ej);
+            cJSON_Delete(ej);
+            if (email_input) {
+                char email_out[256];
+                tool_registry_execute("send_email", email_input, email_out, sizeof(email_out));
+                free(email_input);
+            }
             break;
         }
         case RULE_ACTION_HA: {

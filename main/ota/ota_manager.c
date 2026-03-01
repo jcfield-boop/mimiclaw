@@ -9,6 +9,7 @@
 #include "esp_https_ota.h"
 #include "esp_heap_caps.h"
 #include "esp_system.h"
+#include "esp_app_desc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -62,7 +63,57 @@ esp_err_t ota_update_from_url(const char *url)
         .http_client_init_cb = NULL,
     };
 
-    esp_err_t ret = esp_https_ota(&ota_cfg);
+    /* H4: Use the advanced OTA API so we can validate the image header
+     * before committing any bytes to flash.  If the download is corrupt
+     * (wrong magic, wrong chip) we abort without touching the running image.
+     * NOTE: Bootloader rollback requires OTA partition slots which the
+     * current partitions_c6.csv does not include (factory-only layout).
+     * CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is therefore left disabled. */
+    esp_https_ota_handle_t ota_handle = NULL;
+    esp_err_t ret = esp_https_ota_begin(&ota_cfg, &ota_handle);
+    if (ret != ESP_OK) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "OTA begin failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "%s", msg);
+        ws_server_broadcast_monitor("ota", msg);
+        return ret;
+    }
+
+    /* Inspect the image descriptor before writing a single byte */
+    esp_app_desc_t new_desc;
+    ret = esp_https_ota_get_img_desc(ota_handle, &new_desc);
+    if (ret != ESP_OK) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "OTA image invalid (bad header): %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "%s", msg);
+        ws_server_broadcast_monitor("ota", msg);
+        esp_https_ota_abort(ota_handle);
+        return ret;
+    }
+    {
+        const esp_app_desc_t *running = esp_app_get_description();
+        char msg[128];
+        snprintf(msg, sizeof(msg), "OTA image OK: v%s → v%s",
+                 running->version, new_desc.version);
+        ESP_LOGI(TAG, "%s", msg);
+        ws_server_broadcast_monitor("ota", msg);
+    }
+
+    /* Stream and write the firmware */
+    while (1) {
+        ret = esp_https_ota_perform(ota_handle);
+        if (ret != ESP_ERR_HTTPS_OTA_IN_PROGRESS) break;
+    }
+    if (ret != ESP_OK) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "OTA write failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "%s", msg);
+        ws_server_broadcast_monitor("ota", msg);
+        esp_https_ota_abort(ota_handle);
+        return ret;
+    }
+
+    ret = esp_https_ota_finish(ota_handle);
     if (ret == ESP_OK) {
         ws_server_broadcast_monitor("ota", "OTA complete — rebooting...");
         ESP_LOGI(TAG, "OTA successful, restarting");
@@ -70,7 +121,7 @@ esp_err_t ota_update_from_url(const char *url)
         esp_restart();
     } else {
         char msg[80];
-        snprintf(msg, sizeof(msg), "OTA failed: %s", esp_err_to_name(ret));
+        snprintf(msg, sizeof(msg), "OTA finish failed: %s", esp_err_to_name(ret));
         ESP_LOGE(TAG, "%s", msg);
         ws_server_broadcast_monitor("ota", msg);
     }

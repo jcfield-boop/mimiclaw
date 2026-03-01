@@ -4,6 +4,7 @@
 
 #include <string.h>
 #include <time.h>
+#include <inttypes.h>
 #include "esp_log.h"
 #include "cJSON.h"
 
@@ -125,12 +126,12 @@ esp_err_t tool_cron_add_execute(const char *input_json, char *output, size_t out
     /* Format success response */
     if (job.kind == CRON_KIND_EVERY) {
         snprintf(output, output_size,
-                 "OK: Added recurring job '%s' (id=%s), runs every %lu seconds. Next run at epoch %lld.",
-                 job.name, job.id, (unsigned long)job.interval_s, (long long)job.next_run);
+                 "OK: Added recurring job '%s' (id=%s), runs every %" PRIu32 " seconds. Next run at epoch %" PRId64 ".",
+                 job.name, job.id, job.interval_s, job.next_run);
     } else {
         snprintf(output, output_size,
-                 "OK: Added one-shot job '%s' (id=%s), fires at epoch %lld.%s",
-                 job.name, job.id, (long long)job.at_epoch,
+                 "OK: Added one-shot job '%s' (id=%s), fires at epoch %" PRId64 ".%s",
+                 job.name, job.id, job.at_epoch,
                  job.delete_after_run ? " Will be deleted after firing." : "");
     }
 
@@ -162,19 +163,19 @@ esp_err_t tool_cron_list_execute(const char *input_json, char *output, size_t ou
 
         if (j->kind == CRON_KIND_EVERY) {
             off += snprintf(output + off, output_size - off,
-                "  %d. [%s] \"%s\" — every %lus, %s, next=%lld, last=%lld, ch=%s:%s\n",
+                "  %d. [%s] \"%s\" — every %" PRIu32 "s, %s, next=%" PRId64 ", last=%" PRId64 ", ch=%s:%s\n",
                 i + 1, j->id, j->name,
-                (unsigned long)j->interval_s,
+                j->interval_s,
                 j->enabled ? "enabled" : "disabled",
-                (long long)j->next_run, (long long)j->last_run,
+                j->next_run, j->last_run,
                 j->channel, j->chat_id);
         } else {
             off += snprintf(output + off, output_size - off,
-                "  %d. [%s] \"%s\" — at %lld, %s, last=%lld, ch=%s:%s%s\n",
+                "  %d. [%s] \"%s\" — at %" PRId64 ", %s, last=%" PRId64 ", ch=%s:%s%s\n",
                 i + 1, j->id, j->name,
-                (long long)j->at_epoch,
+                j->at_epoch,
                 j->enabled ? "enabled" : "disabled",
-                (long long)j->last_run,
+                j->last_run,
                 j->channel, j->chat_id,
                 j->delete_after_run ? " (auto-delete)" : "");
         }

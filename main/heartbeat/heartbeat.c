@@ -56,9 +56,9 @@ static bool heartbeat_has_tasks(void)
             continue;
         }
 
-        /* Only fire on unchecked markdown checkboxes: "- [ ] task text" */
+        /* Only fire on unchecked markdown checkboxes: "- [ ]" or "* [ ]" task text */
         size_t len = strlen(p);
-        if (len >= 5 && p[0] == '-' && p[1] == ' ' &&
+        if (len >= 5 && (p[0] == '-' || p[0] == '*') && p[1] == ' ' &&
             p[2] == '[' && p[3] == ' ' && p[4] == ']') {
             found_task = true;
             break;

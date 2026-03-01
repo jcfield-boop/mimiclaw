@@ -120,6 +120,13 @@ static esp_err_t ws_handler(httpd_req_t *req)
         return ESP_OK;
     }
 
+    /* H1: Reject oversized frames before allocating — prevents SRAM exhaustion */
+    if (ws_pkt.len > 8 * 1024) {
+        ESP_LOGW(TAG, "WS frame too large (%u bytes), rejecting fd=%d",
+                 (unsigned)ws_pkt.len, httpd_req_to_sockfd(req));
+        return ESP_ERR_INVALID_ARG;
+    }
+
     ws_pkt.payload = calloc(1, ws_pkt.len + 1);
     if (!ws_pkt.payload) return ESP_ERR_NO_MEM;
 
@@ -265,6 +272,17 @@ static esp_err_t file_post_handler(httpd_req_t *req)
         return ESP_OK;
     }
     body[received] = '\0';
+
+    /* L2: check SPIFFS free space before writing */
+    {
+        size_t spiffs_total = 0, spiffs_used = 0;
+        esp_spiffs_info(NULL, &spiffs_total, &spiffs_used);
+        if (spiffs_total > 0 && spiffs_used + (size_t)received > spiffs_total) {
+            free(body);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Insufficient SPIFFS space");
+            return ESP_OK;
+        }
+    }
 
     FILE *f = fopen(path, "w");
     if (!f) {
@@ -590,20 +608,27 @@ static esp_err_t config_post_handler(httpd_req_t *req)
     cJSON *api_key    = cJSON_GetObjectItem(root, "api_key");
     cJSON *search_key = cJSON_GetObjectItem(root, "search_key");
 
-    if (provider && cJSON_IsString(provider) && provider->valuestring[0]) {
+    /* M4: cap all string fields to 128 chars before writing to NVS */
+#define CONFIG_FIELD_MAX 128
+    if (provider && cJSON_IsString(provider) && provider->valuestring[0]
+        && strnlen(provider->valuestring, CONFIG_FIELD_MAX + 1) <= CONFIG_FIELD_MAX) {
         llm_set_provider(provider->valuestring);
     }
-    if (model && cJSON_IsString(model) && model->valuestring[0]) {
+    if (model && cJSON_IsString(model) && model->valuestring[0]
+        && strnlen(model->valuestring, CONFIG_FIELD_MAX + 1) <= CONFIG_FIELD_MAX) {
         llm_set_model(model->valuestring);
     }
     if (api_key && cJSON_IsString(api_key) && api_key->valuestring[0]
-        && strncmp(api_key->valuestring, "****", 4) != 0) {
+        && strncmp(api_key->valuestring, "****", 4) != 0
+        && strnlen(api_key->valuestring, CONFIG_FIELD_MAX + 1) <= CONFIG_FIELD_MAX) {
         llm_set_api_key(api_key->valuestring);
     }
     if (search_key && cJSON_IsString(search_key) && search_key->valuestring[0]
-        && strncmp(search_key->valuestring, "****", 4) != 0) {
+        && strncmp(search_key->valuestring, "****", 4) != 0
+        && strnlen(search_key->valuestring, CONFIG_FIELD_MAX + 1) <= CONFIG_FIELD_MAX) {
         tool_web_search_set_key(search_key->valuestring);
     }
+#undef CONFIG_FIELD_MAX
 
     cJSON *verbose = cJSON_GetObjectItem(root, "verbose_logs");
     if (verbose != NULL) {

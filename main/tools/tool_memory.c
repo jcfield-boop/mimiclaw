@@ -156,6 +156,13 @@ esp_err_t tool_memory_write_execute(const char *input_json,
 
     if (cur_len + entry_len < MEM_BUF_SIZE - 1) {
         memcpy(mem_buf + cur_len, entry, entry_len + 1);
+    } else {
+        /* L1: buffer full — report error instead of silently dropping content */
+        free(mem_buf);
+        cJSON_Delete(root);
+        #undef MEM_BUF_SIZE
+        return tool_err(output, output_size, "memory_full",
+                        "MEMORY.md is full — cannot append new entry.");
     }
 
     esp_err_t err = memory_write_long_term(mem_buf);

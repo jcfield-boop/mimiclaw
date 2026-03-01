@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <inttypes.h>
 #include "esp_log.h"
 #include "cJSON.h"
 
@@ -152,9 +153,9 @@ esp_err_t tool_rule_list_execute(const char *input_json, char *output, size_t ou
                  "\"enabled\":%s,"
                  "\"condition\":\"%s %s %s %s\","
                  "\"action_type\":\"%s\","
-                 "\"cooldown_s\":%lu,"
-                 "\"last_triggered\":%lld,"
-                 "\"next_eval_in_s\":%lld"
+                 "\"cooldown_s\":%" PRIu32 ","
+                 "\"last_triggered\":%" PRId64 ","
+                 "\"next_eval_in_s\":%" PRId64
                  "}",
                  i > 0 ? "," : "",
                  r->id,
@@ -163,9 +164,9 @@ esp_err_t tool_rule_list_execute(const char *input_json, char *output, size_t ou
                  r->condition_tool, r->condition_field,
                  op_to_str(r->condition_op), r->condition_value,
                  action_type_to_str(r->action_type),
-                 (unsigned long)r->cooldown_s,
-                 (long long)r->last_triggered,
-                 (long long)next_in);
+                 r->cooldown_s,
+                 r->last_triggered,
+                 next_in);
         if (n <= 0 || n >= cap - pos) break;
         pos += n;
     }
