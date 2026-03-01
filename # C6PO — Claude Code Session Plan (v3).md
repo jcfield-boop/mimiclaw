@@ -182,13 +182,20 @@ Reboot → read MEMORY.md via web console        → verify persistence
 
 **Phase 1 success criteria:**
 
-- memory_write invoked via tool_use, confirmed in Live Log
-- Per-turn rate limit fires on second write attempt
-- 60s cooldown fires correctly (use esp_timer_get_time)
-- Write survives reboot
-- SPIFFS error returns ok:false to model, no panic/reboot
+- [x] memory_write invoked via tool_use, confirmed in Live Log
+- [x] Per-turn rate limit fires on second write attempt
+- [x] 60s cooldown fires correctly (use esp_timer_get_time)
+- [ ] Write survives reboot — verify manually
+- [x] SPIFFS error returns ok:false to model, no panic/reboot
 
-**Commit:** `feat: memory_write as agent tool with rate limiting and payload validation`
+**Commit:** `feat: memory_write as agent tool with rate limiting and payload validation` ✓
+
+**Notes:**
+- haiku-4.5 refuses to call tools when it can respond conversationally — fixed by
+  detecting memory trigger keywords in agent_loop and setting tool_choice=any on iter 0
+- Prompt buffer increased to 12KB (was 8KB — was silently truncating at 8191 bytes)
+- memory_write had to be added to the Available Tools list in the preamble
+  (model ignores tools it doesn't see mentioned in the system prompt)
 
 -----
 
