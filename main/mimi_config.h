@@ -90,7 +90,7 @@
 #define MIMI_MEMORY_MAX_BYTES        (6 * 1024)  /* max MEMORY.md size before trim */
 #define MIMI_SOUL_FILE               "/spiffs/config/SOUL.md"
 #define MIMI_USER_FILE               "/spiffs/config/USER.md"
-#define MIMI_CONTEXT_BUF_SIZE        (8 * 1024)  /* 8KB heap: static ~1.7KB + skills ~1KB + memory up to ~5KB */
+#define MIMI_CONTEXT_BUF_SIZE        (12 * 1024) /* 12KB heap: preamble ~1.5KB + USER.md ~2KB + skills ~2KB + memory ~6KB */
 #define MIMI_SESSION_MAX_MSGS        15  /* Reduced from 20 for ESP32-C6 to save memory */
 
 /* Cron / Heartbeat */
