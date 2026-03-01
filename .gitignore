@@ -38,6 +38,10 @@ main/mimi_secrets.h
 # Reference repos
 nanobot/
 
+# User config files containing credentials
+spiffs_data/config/SERVICES.md
+spiffs_data/config/USER.md
+
 # MCP / Memov
 .mcp.json
 .mem/
