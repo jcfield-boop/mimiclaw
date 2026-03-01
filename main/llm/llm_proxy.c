@@ -542,6 +542,7 @@ void llm_response_free(llm_response_t *resp)
 esp_err_t llm_chat_tools(const char *system_prompt,
                          cJSON *messages,
                          const char *tools_json,
+                         bool force_tool_use,
                          llm_response_t *resp)
 {
     memset(resp, 0, sizeof(*resp));
@@ -567,7 +568,9 @@ esp_err_t llm_chat_tools(const char *system_prompt,
             cJSON *tools = convert_tools_openai(tools_json);
             if (tools) {
                 cJSON_AddItemToObject(body, "tools", tools);
-                cJSON_AddStringToObject(body, "tool_choice", "auto");
+                /* "required" forces at least one tool call; "auto" lets model skip */
+                cJSON_AddStringToObject(body, "tool_choice",
+                                        force_tool_use ? "required" : "auto");
             }
         }
     } else {
@@ -582,6 +585,13 @@ esp_err_t llm_chat_tools(const char *system_prompt,
             cJSON *tools = cJSON_Parse(tools_json);
             if (tools) {
                 cJSON_AddItemToObject(body, "tools", tools);
+                /* Anthropic: tool_choice object; "any" = must call at least one tool */
+                if (force_tool_use) {
+                    cJSON *tc = cJSON_CreateObject();
+                    cJSON_AddStringToObject(tc, "type", "any");
+                    cJSON_AddItemToObject(body, "tool_choice", tc);
+                }
+                /* Without tool_choice, Anthropic defaults to auto */
             }
         }
     }

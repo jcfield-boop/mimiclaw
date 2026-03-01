@@ -11,6 +11,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -262,6 +263,26 @@ static void agent_loop_task(void *arg)
         bool recovery_tried = false;
         bool oom_restart = false;
 
+        /* Detect memory trigger keywords so we can force tool_choice="any" on
+         * the first LLM iteration. Only applied to iter 0 — subsequent iters
+         * let the model choose freely (it may need to call other tools too). */
+        bool force_memory_tool = false;
+        {
+            const char *txt = msg.content ? msg.content : "";
+            /* Simple case-insensitive prefix/substring scan for common triggers */
+            char lower[64] = {0};
+            size_t tlen = strlen(txt);
+            for (size_t ci = 0; ci < tlen && ci < sizeof(lower) - 1; ci++)
+                lower[ci] = (char)tolower((unsigned char)txt[ci]);
+            if (strstr(lower, "remember") || strstr(lower, "save that") ||
+                strstr(lower, "note that") || strstr(lower, "don't forget") ||
+                strstr(lower, "dont forget") || strstr(lower, "make a note") ||
+                strstr(lower, "keep in mind")) {
+                force_memory_tool = true;
+                ws_server_broadcast_monitor_verbose("task", "memory trigger detected — forcing tool call");
+            }
+        }
+
         while (iteration < MIMI_AGENT_MAX_TOOL_ITER) {
             /* Send "working" indicator before each API call */
 #if MIMI_AGENT_SEND_WORKING_STATUS
@@ -288,7 +309,8 @@ static void agent_loop_task(void *arg)
                 led_set_state(LED_THINKING);
             }
             llm_response_t resp;
-            err = llm_chat_tools(system_prompt, messages, tools_json, &resp);
+            bool force_this_iter = (force_memory_tool && iteration == 0);
+            err = llm_chat_tools(system_prompt, messages, tools_json, force_this_iter, &resp);
 
             if (err != ESP_OK) {
                 char emsg[80];

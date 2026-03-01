@@ -82,7 +82,13 @@ void llm_response_free(llm_response_t *resp);
  * @param resp           Output: structured response with text and tool calls
  * @return ESP_OK on success
  */
+/**
+ * force_tool_use: if true, set tool_choice to "any" (Anthropic) / "required"
+ * (OpenAI) so the model MUST call at least one tool. Use on the first iteration
+ * only when the user message is a known tool-trigger (e.g. "remember X").
+ */
 esp_err_t llm_chat_tools(const char *system_prompt,
                          cJSON *messages,
                          const char *tools_json,
+                         bool force_tool_use,
                          llm_response_t *resp);
