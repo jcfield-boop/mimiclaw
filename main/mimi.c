@@ -188,10 +188,16 @@ void app_main(void)
     ESP_LOGI(TAG, "========================================");
 
     /* Print memory info */
-    ESP_LOGI(TAG, "Internal free: %d bytes",
+    ESP_LOGI(TAG, "Internal free:    %d bytes",
              (int)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    ESP_LOGI(TAG, "Min free heap:    %d bytes",
+             (int)esp_get_minimum_free_heap_size());
+    ESP_LOGI(TAG, "Largest free blk: %d bytes",
+             (int)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    ESP_LOGI(TAG, "Free DMA heap:    %d bytes",
+             (int)heap_caps_get_free_size(MALLOC_CAP_DMA));
 #if CONFIG_SPIRAM
-    ESP_LOGI(TAG, "PSRAM free:    %d bytes",
+    ESP_LOGI(TAG, "PSRAM free:       %d bytes",
              (int)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 #else
     ESP_LOGI(TAG, "PSRAM: Not available (ESP32-C6)");

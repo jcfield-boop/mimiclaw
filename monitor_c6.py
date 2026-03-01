@@ -12,7 +12,7 @@ import datetime
 import sys
 import os
 
-PORT     = "/dev/cu.usbmodem14101"
+PORT     = "/dev/cu.usbmodem144201"
 BAUD     = 115200
 CHECK_INTERVAL_S = 20 * 60   # analyse window every 20 minutes
 CRASH_RECOVER_S  = 90        # wait this long after crash before reset attempt

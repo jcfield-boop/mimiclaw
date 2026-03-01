@@ -17,8 +17,10 @@ esp_err_t tool_system_info_execute(const char *input_json, char *output, size_t 
     (void)input_json;
 
     /* Heap */
-    uint32_t free_heap = esp_get_free_heap_size();
-    uint32_t min_heap  = esp_get_minimum_free_heap_size();
+    uint32_t free_heap   = esp_get_free_heap_size();
+    uint32_t min_heap    = esp_get_minimum_free_heap_size();
+    uint32_t largest_blk = (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    uint32_t free_dma    = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_DMA);
 
     /* SPIFFS */
     size_t spiffs_total = 0, spiffs_used = 0;
@@ -60,13 +62,17 @@ esp_err_t tool_system_info_execute(const char *input_json, char *output, size_t 
     int spiffs_pct = spiffs_total ? (int)(spiffs_used * 100 / spiffs_total) : 0;
 
     snprintf(output, output_size,
-             "Free heap: %lu bytes (min: %lu)\n"
+             "Free heap: %lu bytes (min ever: %lu)\n"
+             "Largest free block: %lu bytes\n"
+             "Free DMA heap: %lu bytes\n"
              "SPIFFS: %u / %u bytes used (%d%%)\n"
              "Uptime: %s\n"
              "WiFi: %s  RSSI: %d dBm\n"
              "Firmware: %s (built %s %s)",
              (unsigned long)free_heap,
              (unsigned long)min_heap,
+             (unsigned long)largest_blk,
+             (unsigned long)free_dma,
              (unsigned)spiffs_used,
              (unsigned)spiffs_total,
              spiffs_pct,
@@ -77,8 +83,10 @@ esp_err_t tool_system_info_execute(const char *input_json, char *output, size_t 
              desc ? desc->date    : "",
              desc ? desc->time    : "");
 
-    ESP_LOGI(TAG, "system_info: heap=%lu spiffs=%u/%u uptime=%s rssi=%d",
-             (unsigned long)free_heap, (unsigned)spiffs_used, (unsigned)spiffs_total,
+    ESP_LOGI(TAG, "system_info: heap=%lu min=%lu largest_blk=%lu dma=%lu spiffs=%u/%u uptime=%s rssi=%d",
+             (unsigned long)free_heap, (unsigned long)min_heap,
+             (unsigned long)largest_blk, (unsigned long)free_dma,
+             (unsigned)spiffs_used, (unsigned)spiffs_total,
              uptime_str, rssi);
 
     return ESP_OK;
