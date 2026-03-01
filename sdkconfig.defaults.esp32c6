@@ -66,6 +66,6 @@ CONFIG_LWIP_SNTP_MAX_SERVERS=3
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y
 
 # Coredump to flash partition (black box — records crash for post-mortem)
+# ESP_COREDUMP_DATA_FORMAT_ELF is auto-selected; only the destination choice is needed
 CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
-CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
 CONFIG_ESP_COREDUMP_CHECK_BOOT=y
