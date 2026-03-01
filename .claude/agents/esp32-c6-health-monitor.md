@@ -66,6 +66,32 @@ Do NOT run a build check unless the user specifically asks — it's slow and doe
   - If web UI is accessible, check context builder loaded it
 - **Do NOT read SPIFFS directly** — infer from logs only
 
+### 6. Cron API Check
+- `GET /api/crons` on the device IP:
+  ```bash
+  curl -s --max-time 5 http://<DEVICE_IP>/api/crons | python3 -m json.tool
+  ```
+- PASS if response is valid JSON and contains a `now_epoch` field with a reasonable value
+  (> 1700000000, i.e., after Nov 2023)
+- FAIL if endpoint returns error or `now_epoch` is 0 or missing (suggests time sync failure)
+
+### 7. Uptime Monotonicity Check
+- Poll sysinfo twice, 10 seconds apart:
+  ```bash
+  curl -s http://<DEVICE_IP>/api/sysinfo | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('uptime_s',0))"
+  sleep 10
+  curl -s http://<DEVICE_IP>/api/sysinfo | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('uptime_s',0))"
+  ```
+- PASS if second uptime_s > first uptime_s (device is not reset-looping)
+- FAIL if second value is <= first (device rebooted during the 10s window)
+- WARN if values are identical (uptime_s field may be missing or stuck)
+
+### 8. Token Accumulation Check
+- From sysinfo, get `uptime_s` and `tokens_in`
+- If uptime_s > 300 (device running > 5 minutes) and tokens_in == 0:
+  WARN — either no LLM calls have been made, or streaming token parsing is broken
+- If uptime_s > 300 and tokens_in > 0: PASS
+
 ## Reporting Format
 
 Produce a structured health report:
@@ -84,6 +110,9 @@ Produce a structured health report:
 ✅/❌/⚠️  HEAP MEMORY    [PASS/FAIL/WARN] — free: NNNkB
 ✅/❌/⚠️  LLM PROXY      [PASS/FAIL/WARN] — tokens in/out: N/N
 ✅/❌/⚠️  SPIFFS/MEMORY  [PASS/FAIL/WARN] — MEMORY.md status
+✅/❌/⚠️  CRON API      [PASS/FAIL/WARN] — now_epoch: NNNN
+✅/❌/⚠️  UPTIME MONO   [PASS/FAIL/WARN] — N→M seconds (monotonic)
+✅/❌/⚠️  TOKEN ACCUM   [PASS/FAIL/WARN] — tokens_in: N (after Xs uptime)
 
 OVERALL: ✅ HEALTHY / ⚠️ DEGRADED / ❌ CRITICAL
 

@@ -33,6 +33,11 @@ idf_component_register(
         "tools/lan_request.c"
         "tools/tool_ha.c"
         "tools/tool_klipper.c"
+        "tools/tool_gpio.c"
+        "tools/tool_wifi_scan.c"
+        "tools/tool_rss.c"
+        "tools/tool_rule.c"
+        "rules/rule_engine.c"
         "skills/skill_loader.c"
         "ota/ota_manager.c"
         "led/led_status.c"
@@ -43,5 +48,5 @@ idf_component_register(
     REQUIRES
         nvs_flash esp_wifi esp_netif esp_http_client esp_http_server
         esp_https_ota esp_event json spiffs console vfs app_update esp-tls
-        driver esp_timer esp_driver_tsens led_strip
+        driver esp_timer esp_driver_tsens led_strip mdns
 )

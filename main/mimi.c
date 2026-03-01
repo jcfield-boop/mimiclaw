@@ -31,6 +31,8 @@
 #include "imu/imu_manager.h"
 #include "skills/skill_loader.h"
 #include "led/led_status.h"
+#include "rules/rule_engine.h"
+#include "mdns.h"
 
 static const char *TAG = "mimi";
 
@@ -232,6 +234,7 @@ void app_main(void)
     ESP_ERROR_CHECK(tool_registry_init());
     ESP_ERROR_CHECK(cron_service_init());
     ESP_ERROR_CHECK(heartbeat_init());
+    ESP_ERROR_CHECK(rule_engine_init());
     ESP_ERROR_CHECK(agent_loop_init());
 
     /* Start Serial CLI first (works without WiFi) */
@@ -247,6 +250,13 @@ void app_main(void)
         if (wifi_manager_wait_connected(30000) == ESP_OK) {
             ESP_LOGI(TAG, "WiFi connected: %s", wifi_manager_get_ip());
             led_set_state(LED_IDLE);
+
+            /* Advertise via mDNS so the device is reachable as c6po.local */
+            mdns_init();
+            mdns_hostname_set("c6po");
+            mdns_instance_name_set("C6PO AI Assistant");
+            mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+            ESP_LOGI(TAG, "mDNS started: c6po.local");
 
             /* Sync system clock via SNTP before any TLS connections.
              * Multiple servers tried; if UDP/123 is blocked, fall back
@@ -279,6 +289,7 @@ void app_main(void)
             ESP_ERROR_CHECK(telegram_bot_start());
             cron_service_start();
             heartbeat_start();
+            rule_engine_start();
             ESP_ERROR_CHECK(ws_server_start());
 
             ESP_LOGI(TAG, "All services started!");

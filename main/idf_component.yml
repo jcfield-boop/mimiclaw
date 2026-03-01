@@ -6,6 +6,9 @@ dependencies:
   ## WS2812 LED strip driver (for GPIO8 RGB LED on Super Mini)
   espressif/led_strip:
     version: ">=2.0.0"
+  ## mDNS for c6po.local hostname resolution
+  espressif/mdns:
+    version: ">=1.2.0"
   # # Put list of dependencies here
   # # For components maintained by Espressif:
   # component: "~1.0.0"

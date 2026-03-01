@@ -9,7 +9,7 @@ User requests: "scan network", "find HA", "detect devices", "network diagnostics
 ## Prerequisites
 - User must be on **home WiFi** (192.168.0.x subnet or similar)
 - mDNS/Bonjour must be available on network
-- Tools: `http_request`, `web_search`, `system_info`
+- Tools: `http_request`, `web_search`, `system_info`, `wifi_scan`
 
 ## Steps
 
@@ -17,6 +17,13 @@ User requests: "scan network", "find HA", "detect devices", "network diagnostics
 ```
 Call system_info → check WiFi SSID and signal strength
 Confirm user is on home network (not cellular/remote)
+```
+
+### 1b. **WiFi Environment Scan**
+```
+Call wifi_scan → returns up to 10 nearby APs with SSID, RSSI, channel, auth
+Useful for: confirming own network visible, detecting channel congestion,
+finding weak signal (RSSI < -75 dBm = marginal, < -85 = poor)
 ```
 
 ### 2. **mDNS Discovery (via HTTP probe)**

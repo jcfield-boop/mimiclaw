@@ -11,6 +11,10 @@
 #include "tools/tool_memory.h"
 #include "tools/tool_ha.h"
 #include "tools/tool_klipper.h"
+#include "tools/tool_gpio.h"
+#include "tools/tool_wifi_scan.h"
+#include "tools/tool_rss.h"
+#include "tools/tool_rule.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -18,7 +22,7 @@
 
 static const char *TAG = "tools";
 
-#define MAX_TOOLS 20
+#define MAX_TOOLS 30
 
 static mimi_tool_t s_tools[MAX_TOOLS];
 static int s_tool_count = 0;
@@ -340,6 +344,133 @@ esp_err_t tool_registry_init(void)
         .execute = tool_klipper_execute,
     };
     register_tool(&kl);
+
+    /* Register gpio_read */
+    mimi_tool_t gr = {
+        .name = "gpio_read",
+        .description = "Read the current logic level (HIGH or LOW) of an ESP32-C6 GPIO pin. "
+                       "Safe pins: 0-7, 10-17, 22. Blocked: 8 (LED), 9 (BOOT), 18-21 (flash).",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{\"pin\":{\"type\":\"integer\","
+            "\"description\":\"GPIO pin number (0-22, excluding 8, 9, 18-21)\"}},"
+            "\"required\":[\"pin\"]}",
+        .execute = tool_gpio_read_execute,
+    };
+    register_tool(&gr);
+
+    /* Register gpio_write */
+    mimi_tool_t gw = {
+        .name = "gpio_write",
+        .description = "Set a GPIO pin HIGH or LOW. Pin must be configured as output first using gpio_mode.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{"
+            "\"pin\":{\"type\":\"integer\",\"description\":\"GPIO pin number\"},"
+            "\"state\":{\"type\":\"string\",\"description\":\"\\\"HIGH\\\", \\\"LOW\\\", 1, or 0\"}"
+            "},\"required\":[\"pin\",\"state\"]}",
+        .execute = tool_gpio_write_execute,
+    };
+    register_tool(&gw);
+
+    /* Register gpio_mode */
+    mimi_tool_t gm = {
+        .name = "gpio_mode",
+        .description = "Configure the mode of a GPIO pin. Call before gpio_read or gpio_write.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{"
+            "\"pin\":{\"type\":\"integer\",\"description\":\"GPIO pin number\"},"
+            "\"mode\":{\"type\":\"string\","
+            "\"enum\":[\"input\",\"output\",\"input_pullup\",\"input_pulldown\"],"
+            "\"description\":\"Pin mode\"}"
+            "},\"required\":[\"pin\",\"mode\"]}",
+        .execute = tool_gpio_mode_execute,
+    };
+    register_tool(&gm);
+
+    /* Register wifi_scan */
+    mimi_tool_t ws2 = {
+        .name = "wifi_scan",
+        .description = "Scan for nearby WiFi networks. Returns up to 10 access points "
+                       "sorted by signal strength (RSSI), with SSID, channel, and auth type. "
+                       "Useful for network diagnostics and connectivity troubleshooting.",
+        .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+        .execute = tool_wifi_scan_execute,
+    };
+    register_tool(&ws2);
+
+    /* Register rss_fetch */
+    mimi_tool_t rss = {
+        .name = "rss_fetch",
+        .description = "Fetch and parse an RSS or Atom feed, returning the latest items as JSON. "
+                       "Use this for news, blog updates, or any RSS/Atom source. "
+                       "More efficient than web_search for structured news feeds.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{"
+            "\"url\":{\"type\":\"string\",\"description\":\"Full URL of the RSS/Atom feed\"},"
+            "\"max_items\":{\"type\":\"integer\","
+            "\"description\":\"Maximum items to return (1-10, default 5)\"}"
+            "},\"required\":[\"url\"]}",
+        .execute = tool_rss_execute,
+    };
+    register_tool(&rss);
+
+    /* Register rule_create */
+    mimi_tool_t rc = {
+        .name = "rule_create",
+        .description = "Create an automation rule that evaluates a condition every 60 seconds "
+                       "and fires an action when the condition is met. "
+                       "Conditions use local tools (device_temp, system_info). "
+                       "Actions: telegram, email, ha (Home Assistant), or log.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{"
+            "\"name\":{\"type\":\"string\",\"description\":\"Short rule name\"},"
+            "\"condition_tool\":{\"type\":\"string\","
+            "\"description\":\"Tool to call for condition: device_temp, system_info\"},"
+            "\"condition_field\":{\"type\":\"string\","
+            "\"description\":\"Field name to extract from tool output\"},"
+            "\"condition_op\":{\"type\":\"string\","
+            "\"enum\":[\">\",\"<\",\"==\",\"!=\",\"contains\"],"
+            "\"description\":\"Comparison operator\"},"
+            "\"condition_value\":{\"type\":\"string\","
+            "\"description\":\"Value to compare against\"},"
+            "\"action_type\":{\"type\":\"string\","
+            "\"enum\":[\"telegram\",\"email\",\"ha\",\"log\"],"
+            "\"description\":\"Action to fire when condition is met\"},"
+            "\"action_params\":{\"type\":\"string\","
+            "\"description\":\"Action details (message text, email subject|body, HA endpoint, or log note)\"},"
+            "\"cooldown_s\":{\"type\":\"integer\","
+            "\"description\":\"Minimum seconds between re-firings (default: 300)\"}"
+            "},\"required\":[\"name\",\"condition_tool\",\"condition_field\","
+            "\"condition_op\",\"condition_value\",\"action_type\",\"action_params\"]}",
+        .execute = tool_rule_create_execute,
+    };
+    register_tool(&rc);
+
+    /* Register rule_list */
+    mimi_tool_t rl = {
+        .name = "rule_list",
+        .description = "List all automation rules with their conditions, actions, and last-triggered times.",
+        .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+        .execute = tool_rule_list_execute,
+    };
+    register_tool(&rl);
+
+    /* Register rule_delete */
+    mimi_tool_t rd = {
+        .name = "rule_delete",
+        .description = "Delete an automation rule by its ID.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{\"rule_id\":{\"type\":\"string\","
+            "\"description\":\"The 8-character rule ID to delete\"}},"
+            "\"required\":[\"rule_id\"]}",
+        .execute = tool_rule_delete_execute,
+    };
+    register_tool(&rd);
 
     build_tools_json();
 
